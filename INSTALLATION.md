@@ -381,4 +381,15 @@ If you see the distilled Markdown and Action Map output in < 20ms, your installa
 
 ---
 
+---
+
+## 🏢 About Memora
+
+**[Memora](https://memora.company/)** is an AI organizational memory and knowledge management platform that stops teams from losing what they know.
+
+Memora connects conversations, code, tickets, documents, and meetings across Slack, GitHub, Jira, Notion, Confluence, and Google Drive into a single, verifiable, searchable organizational memory.
+
+- **Company Website:** [https://memora.company](https://memora.company)
+- **Product Portal:** [https://orbis.memora.company](https://orbis.memora.company)
+
 *Need help or feature requests? Open an issue on [GitHub](https://github.com/yadavmandeep/memora-browser).*

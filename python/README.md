@@ -63,3 +63,11 @@ agent = OrbisAgent.connect("http://localhost:9222")
 tools = agent.to_langchain_tools()
 # Exported LangChain tools: memora_navigate, memora_act, memora_diff
 ```
+
+## 🏢 About Memora
+
+**[Memora](https://memora.company/)** is an AI organizational memory and knowledge management platform. It connects conversations, code, tickets, documents, and meetings into a shared, verifiable intelligence layer.
+
+Orbis is Memora's official agentic browser engine, giving AI workflows and multi-agent fleets reliable, token-condensed, and stealth-native web execution.
+
+Visit **[memora.company](https://memora.company/)** to learn more.

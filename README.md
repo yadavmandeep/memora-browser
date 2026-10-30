@@ -14,7 +14,7 @@
 [![Token Savings](https://img.shields.io/badge/LLM%20Tokens-95%25%20reduction-purple.svg)]()
 
 <p align="center">
-  <img src="./assets/orbis-hero.png" alt="Orbis by Memora - The Agentic Browser" width="100%" />
+  <img src="https://orbis.memora.company/orbis-hero.png" alt="Orbis by Memora - The Agentic Browser" width="100%" />
 </p>
 
 ---
@@ -35,6 +35,8 @@
 - [🐳 Docker & Cloud Deployment](#-docker--cloud-deployments)
 - [🏗️ Internal Architecture](#-architecture-overview)
 - [❓ FAQ & Troubleshooting](#-faq--troubleshooting)
+- [🏢 About Memora](#-about-memora)
+- [📜 License](#-license)
 
 ---
 
@@ -493,6 +495,20 @@ npm run test:all
 This runs all 82+ unit, benchmark, proxy, selenium, robots.txt, scripts, and agent test suites.
 
 ---
+
+## 🏢 About Memora
+
+**[Memora](https://memora.company/)** is an AI organizational memory and knowledge management platform that stops teams from losing what they know.
+
+Modern engineering and product teams produce vast amounts of institutional knowledge across fragmented silos — Slack discussions, GitHub pull requests, Jira tickets, documentation wikis, and meeting transcripts. When team members change or projects evolve, this vital context gets lost.
+
+Memora connects these tools into a single, verifiable, searchable organizational memory:
+- 🧠 **[Organizational Memory](https://memora.company/solutions/organizational-memory)**: Captures the reasoning, architectural trade-offs, and technical solutions as they happen.
+- 🔍 **[Enterprise Knowledge Search](https://memora.company/solutions/enterprise-knowledge-search)**: One trusted natural-language search across Slack, GitHub, Jira, Confluence, Linear, Notion, and Google Drive with direct source citations.
+- 📝 **[AI Meeting Notes](https://memora.company/solutions/ai-meeting-notes)**: Automatically links meeting decisions and action items to the actual code and tickets they affect.
+- 🪐 **[Orbis Headless Browser](https://orbis.memora.company)**: Engineered by Memora to give autonomous AI agents and enterprise research bots an ultra-fast (5MB RAM, 8ms startup), stealth-native, token-efficient browsing engine.
+
+Explore the platform, documentation, and enterprise solutions at **[memora.company](https://memora.company/)**.
 
 ## 📜 License
 Orbis Commercial & Community Evaluation License v1.0 — see [LICENSE.md](LICENSE.md). Free for personal development, learning, testing and evaluation; production and commercial use require a commercial license (enterprise@memora.company).

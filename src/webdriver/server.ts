@@ -367,7 +367,7 @@ export class WebDriverServer {
         return this.send(res, {
           ready: this.sessions.size < this.options.maxSessions,
           message: this.sessions.size < this.options.maxSessions ? 'Memora WebDriver is ready' : 'Session limit reached',
-          build: { version: '1.0.0', engine: 'memora-native' },
+          build: { version: '0.1.0', engine: 'memora-native' },
         });
       }
       if (method === 'POST' && path === '/session') {
@@ -445,7 +445,7 @@ export class WebDriverServer {
       sessionId: session.id,
       capabilities: {
         browserName: merged.browserName || 'memora',
-        browserVersion: '1.0.0',
+        browserVersion: '0.1.0',
         platformName: platform,
         acceptInsecureCerts: !!network.insecureTls,
         pageLoadStrategy: merged.pageLoadStrategy || 'normal',

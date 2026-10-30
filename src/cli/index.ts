@@ -79,7 +79,7 @@ async function checkOrbisVersion(): Promise<void> {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 1500);
-    const res = await fetch('https://orbis.memora.company/api/v1/version-check?v=1.0.0', {
+    const res = await fetch('https://orbis.memora.company/api/v1/version-check?v=0.1.0', {
       signal: controller.signal
     }).catch(() => null);
     clearTimeout(timeout);
@@ -87,8 +87,8 @@ async function checkOrbisVersion(): Promise<void> {
       const data: any = await res.json().catch(() => null);
       if (data?.deprecated) {
         console.warn(`\n⚠️  [ORBIS ADVISORY] ${data.message || 'This version is deprecated. Please upgrade to the latest release.'}\n`);
-      } else if (data?.latest && data.latest !== '1.0.0') {
-        console.log(`\n✨ [UPDATE AVAILABLE] Orbis v${data.latest} is available! (Current: v1.0.0). Run: npm i -g memora-orbis\n`);
+      } else if (data?.latest && data.latest !== '0.1.0') {
+        console.log(`\n✨ [UPDATE AVAILABLE] Orbis v${data.latest} is available! (Current: v0.1.0). Run: npm i -g @memoracompany/orbis\n`);
       }
     }
   } catch {
@@ -249,7 +249,7 @@ function addServerOptions(cmd: Command): Command {
 addServerOptions(program
   .name('orbis')
   .description('Orbis by Memora — The Web, Working for You. Built for Autonomous Intelligence (orbis.memora.company)')
-  .version('1.0.0'))
+  .version('0.1.0'))
   .option('--eval <url>', 'Fetch a URL, distill semantic snapshot, and output to console')
   .option('--mcp', 'Run as Model Context Protocol (MCP) server over stdio for Cursor, Claude, Antigravity')
   .action(runServer);

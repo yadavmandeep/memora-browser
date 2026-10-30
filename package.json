@@ -1,6 +1,6 @@
 {
-  "name": "memora-orbis",
-  "version": "1.0.0",
+  "name": "@memoracompany/orbis",
+  "version": "0.1.0",
   "description": "Orbis by Memora — The Web, Working for You. Agent-native, ultra-lightweight headless browser engine with CDP, W3C WebDriver, semantic AXTree distillation, and built-in stealth",
   "homepage": "https://orbis.memora.company",
   "type": "module",
@@ -15,8 +15,7 @@
     "dist",
     "README.md",
     "INSTALLATION.md",
-    "LICENSE.md",
-    "assets"
+    "LICENSE.md"
   ],
   "scripts": {
     "build": "node scripts/build.mjs",
@@ -69,5 +68,9 @@
     "selenium-webdriver": "^4.51.0",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yadavmandeep/orbis.git"
   }
 }
