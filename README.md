@@ -35,6 +35,11 @@ Traditional headless browsers (Chromium, Firefox, WebKit) were designed for **hu
 
 ---
 
+> 📖 **Looking for full installation instructions across Python, Node.js, Cursor, Claude Desktop, and Docker?**  
+> Check out the complete **[End-User Installation Guide (INSTALLATION.md)](INSTALLATION.md)**.
+
+---
+
 ## 🚀 Quick Start (CLI)
 
 Run Memora Browser as a standalone CDP daemon:

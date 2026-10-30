@@ -57,6 +57,7 @@
   "files": [
     "dist",
     "README.md",
+    "INSTALLATION.md",
     "python"
   ]
 }
