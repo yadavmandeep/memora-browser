@@ -1,4 +1,4 @@
-# 🪐 ORBIS BY MEMORA — End-User Installation & Setup Guide
+# <img src="https://orbis.memora.company/orbis-logo.svg" alt="Orbis Logo" width="36" height="36" align="center" /> Orbis by Memora — Installation & Setup Guide
 ### *The Web, Working for You. Built for Autonomous Intelligence.*
 > 🌐 **Product Portal:** [orbis.memora.company](https://orbis.memora.company) • **Company:** [memora.company](https://memora.company)  
 > ⚡ **Core Engine:** Memora Browser Engine (MBE) (`memora-orbis`)  
@@ -22,12 +22,11 @@ Choose how you want to use Orbis:
 | If you are using... | Jump to Section | Setup Method |
 | :--- | :--- | :--- |
 | **Cursor, Claude Desktop, Antigravity** | [1. AI Coding Assistants (MCP)](#1-ai-coding-assistants-mcp-setup) | No install needed (`npx`) |
-| **Global Terminal CLI** | [2. Global CLI Installation](#2-global-cli-installation) | `npm install -g memora-orbis` |
-| **TypeScript / Node.js Agents** | [3. TypeScript / Node.js Developers](#3-typescript--nodejs-developers) | `npm install memora-orbis` |
+| **Global Terminal CLI** | [2. Global CLI Installation](#2-global-cli-installation) | `npm install -g @memoracompany/orbis` |
+| **TypeScript / Node.js Agents** | [3. TypeScript / Node.js Developers](#3-typescript--nodejs-developers) | `npm install @memoracompany/orbis` |
 | **Python Agents (Browser-Use, LangChain, CrewAI)** | [4. Python AI Developers](#4-python-ai-developers-pip) | `pip install memora-orbis` |
 | **Playwright / Puppeteer** | [5. Playwright & Puppeteer Users](#5-playwright--puppeteer-drop-in) | Drop-in CDP (`ws://...`) |
 | **Selenium / W3C WebDriver** | [6. Selenium (W3C WebDriver)](#6-selenium-w3c-webdriver-classic) | No chromedriver needed |
-| **Docker / Cloud / Kubernetes** | [7. Docker & Cloud Deployment](#7-docker--cloud-deployments) | Pre-built Docker container |
 
 ---
 
@@ -60,7 +59,7 @@ Orbis acts as a high-speed **Model Context Protocol (MCP)** server over stdio. Y
 3. Fill in:
    - **Name:** `orbis`
    - **Type:** `command`
-   - **Command:** `npx -y memora-orbis --mcp`
+   - **Command:** `npx -y @memoracompany/orbis --mcp`
 4. Click **Save**. Composer and Chat can now browse documentation, search live sites, and interact with web applications at 10x lower token cost.
 
 ### C. Google Antigravity / Windsurf
@@ -83,7 +82,7 @@ Add to your project's `.mcp.json` or global config:
 To run Orbis commands from any terminal without re-downloading via `npx`:
 
 ```bash
-npm install -g memora-orbis
+npm install -g @memoracompany/orbis
 ```
 
 Once installed globally, you have instant access to:
@@ -105,12 +104,12 @@ orbis --port 9222
 
 ### Step 1: Install Package
 ```bash
-npm install memora-orbis
+npm install @memoracompany/orbis
 ```
 
 ### Step 2: 1-Line Autonomous Agent Loop (`OrbisAgent`)
 ```typescript
-import { OrbisAgent } from 'memora-orbis';
+import { OrbisAgent } from '@memoracompany/orbis';
 
 // Launch standalone browser daemon with stealth and CDP on port 9222
 const agent = await OrbisAgent.launch({ stealth: true, cdpPort: 9222 });
@@ -161,7 +160,7 @@ Orbis provides a modular **Strategy Pattern locator engine** that works across a
 
 ### Integration with Stagehand
 ```typescript
-import { OrbisAgent, getStagehandConfig } from 'memora-orbis';
+import { OrbisAgent, getStagehandConfig } from '@memoracompany/orbis';
 import { Stagehand } from '@browserbasehq/stagehand';
 
 const agent = await OrbisAgent.launch({ cdpPort: 9222 });
@@ -173,7 +172,7 @@ await stagehand.page.goto('https://example.com');
 
 ### Integration with LangChain
 ```typescript
-import { OrbisAgent, createOrbisLangChainTools } from 'memora-orbis';
+import { OrbisAgent, createOrbisLangChainTools } from '@memoracompany/orbis';
 
 const agent = await OrbisAgent.launch();
 const tools = createOrbisLangChainTools(agent);
@@ -189,7 +188,7 @@ Ideal for **Browser-Use**, **LangChain**, **CrewAI**, **AutoGen**, and Python LL
 ### Step 1: Start the Orbis Daemon
 In your terminal (or run as background service):
 ```bash
-npx memora-orbis --port 9222
+npx @memoracompany/orbis --port 9222
 ```
 
 ### Step 2: Install Python SDK
@@ -249,7 +248,7 @@ Orbis speaks the raw Chrome DevTools Protocol (CDP). Existing Playwright and Pup
 
 ### Step 1: Start Orbis CDP Server
 ```bash
-npx memora-orbis --port 9222
+npx @memoracompany/orbis --port 9222
 ```
 
 ### Step 2: Connect Playwright
@@ -274,7 +273,7 @@ Orbis speaks W3C WebDriver natively, meaning **no chromedriver binary is require
 
 ### Step 1: Launch WebDriver Server
 ```bash
-npx memora-orbis serve --protocol webdriver --port 9222
+npx @memoracompany/orbis serve --protocol webdriver --port 9222
 ```
 
 ### Step 2: Connect Selenium (Python)
@@ -291,75 +290,6 @@ driver.get("https://example.com")
 print(driver.title)
 driver.quit()
 ```
-
----
-
-## 7. Docker & Cloud Deployments
-
-For containerized cloud deployments (AWS ECS, GCP Cloud Run, Kubernetes, Railway, Render):
-
-### Run Pre-Built Container
-```bash
-docker run -d -p 9222:9222 ghcr.io/yadavmandeep/memora-browser:latest
-```
-
-### Docker Compose (`docker-compose.yml`)
-```yaml
-version: '3.8'
-
-services:
-  orbis:
-    image: ghcr.io/yadavmandeep/memora-browser:latest
-    ports:
-      - "9222:9222"
-    environment:
-      - NODE_ENV=production
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:9222/json/version"]
-      interval: 15s
-      timeout: 3s
-      retries: 3
-```
-
----
-
-## 🌐 Enterprise Proxy Configuration
-
-All commands (`npx orbis`, `npx memora-orbis`, `fetch`, `serve`) support HTTP, HTTPS, and SOCKS5 proxies:
-
-```bash
-# HTTP proxy with basic authentication
-npx orbis --http-proxy 'http://user:pass@proxy.example.com:3128'
-
-# SOCKS5 proxy with bypass list for internal corporate domains
-npx orbis --http-proxy 'socks5://localhost:1080' --proxy-bypass 'localhost,.internal.corp'
-
-# Respect environment variables (HTTP_PROXY / HTTPS_PROXY / NO_PROXY)
-npx orbis --use-env-proxy
-
-# Comply with RFC 9309 robots.txt rules automatically
-npx orbis --obey-robots
-```
-
----
-
-## 🛠️ CLI One-Shot Utilities
-
-Inspect any website and distill it directly from your terminal:
-
-```bash
-# Evaluate and output distilled semantic action map
-npx orbis --eval https://example.com
-
-# Fetch as clean Markdown
-npx orbis fetch https://example.com --dump markdown
-
-# Fetch structured JSON-LD and microdata metadata
-npx orbis fetch https://example.com --dump structured_data
-```
-
----
 
 ## ❓ Troubleshooting & FAQs
 
@@ -392,4 +322,4 @@ Memora connects conversations, code, tickets, documents, and meetings across Sla
 - **Company Website:** [https://memora.company](https://memora.company)
 - **Product Portal:** [https://orbis.memora.company](https://orbis.memora.company)
 
-*Need help or feature requests? Open an issue on [GitHub](https://github.com/yadavmandeep/memora-browser).*
+*Need help or feature requests? Open an issue on [GitHub](https://github.com/memora-company/orbis).*

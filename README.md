@@ -1,4 +1,4 @@
-# 🪐 ORBIS BY MEMORA
+# <img src="https://orbis.memora.company/orbis-logo.svg" alt="Orbis Logo" width="38" height="38" align="center" /> Orbis by Memora
 ### *The Web, Working for You.*
 > **An Agentic Browser. Built for Autonomous Intelligence.**  
 > *Explore. Understand. Execute.*  
@@ -32,8 +32,6 @@
 - [🛠️ Native CDP Domain (`Orbis.*` / `Memora.*`) & REST API](#-proprietary-cdp-domain--rest-api)
 - [🌐 Enterprise Proxy & Stealth Anti-Bot](#-enterprise-proxy--anti-bot-stealth)
 - [🤝 robots.txt Crawler Compliance (RFC 9309)](#-robotstxt-compliance---obey-robots)
-- [🐳 Docker & Cloud Deployment](#-docker--cloud-deployments)
-- [🏗️ Internal Architecture](#-architecture-overview)
 - [❓ FAQ & Troubleshooting](#-faq--troubleshooting)
 - [🏢 About Memora](#-about-memora)
 - [📜 License](#-license)
@@ -82,7 +80,7 @@ You don't even need to install it globally. Run directly via `npx`:
 
 ### 1. Launch standalone CDP Server:
 ```bash
-npx memora-orbis --port 9222
+npx @memoracompany/orbis --port 9222
 # stealth is on by default; pass --no-stealth to turn it off
 ```
 
@@ -149,7 +147,7 @@ Orbis functions as a native **Model Context Protocol (MCP)** server over stdio f
 Orbis provides a high-level agent controller designed for LLM orchestration:
 
 ```typescript
-import { OrbisAgent } from 'memora-orbis';
+import { OrbisAgent } from '@memoracompany/orbis';
 
 // 1. Launch 1-line browser instance with anti-detect stealth
 const agent = await OrbisAgent.launch({ stealth: true, cdpPort: 9222 });
@@ -396,80 +394,6 @@ npx orbis fetch https://example.com --obey-robots
 - Checked for main navigation, every redirect hop, and asynchronous page `fetch()`.
 - Disallowed navigations fail with standard `net::ERR_BLOCKED_BY_CLIENT` over CDP.
 - Customize product token: `--robots-agent MyCustomBot`.
-
----
-
-## 🐳 Docker & Cloud Deployments
-
-Deploy Orbis as a stateless, autoscaled microservice on AWS ECS, GCP Cloud Run, Kubernetes, or Render:
-
-### Run Pre-Built Container:
-```bash
-docker run -d -p 9222:9222 ghcr.io/yadavmandeep/memora-browser:latest
-```
-
-### Docker Compose (`docker-compose.yml`):
-```yaml
-version: '3.8'
-
-services:
-  orbis:
-    image: ghcr.io/yadavmandeep/memora-browser:latest
-    ports:
-      - "9222:9222"
-    environment:
-      - NODE_ENV=production
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:9222/json/version"]
-      interval: 15s
-      timeout: 3s
-      retries: 3
-```
-
----
-
-## 🏗️ Architecture Overview
-
-```
-                                 [ AI Agent / Playwright / Puppeteer / MCP ]
-                                                    │
-                                                    │ CDP (WebSocket JSON-RPC) / HTTP REST
-                                                    ▼
-┌────────────────────────────────────────────────────────────────────────────────────────┐
-│                              MEMORA BROWSER ENGINE (MBE)                               │
-│                                                                                        │
-│  ┌───────────────────────────────────┐  ┌───────────────────────────────────────────┐  │
-│  │ CDP Server & Dispatcher (:9222)   │  │ REST Agent Endpoints (/orbis/snapshot)    │  │
-│  └─────────────────┬─────────────────┘  └─────────────────────┬─────────────────────┘  │
-│                    │                                          │                        │
-│                    ▼                                          ▼                        │
-│  ┌──────────────────────────────────────────────────────────────────────────────────┐  │
-│  │                                  OrbisPage (MemoraPage)                          │  │
-│  │                                                                                  │  │
-│  │  ┌────────────────────────┐  ┌────────────────────────┐  ┌────────────────────┐  │  │
-│  │  │ Spec-Compliant DOM     │  │ V8 Sandbox Runtime     │  │ Stealth Fetcher    │  │  │
-│  │  │ - MemoraDocument       │  │ - node:vm Context      │  │ - Chrome 130 TLS   │  │  │
-│  │  │ - MemoraElement        │  │ - ESM In-Memory Bundler│  │ - Cookie Jar       │  │  │
-│  │  │ - CSS-Select Adapter   │  │ - Dynamic SPA Scripts  │  │ - UA / ClientHints │  │  │
-│  │  └───────────┬────────────┘  └───────────┬────────────┘  └─────────┬──────────┘  │  │
-│  │              │                           │                         │             │  │
-│  │              ▼                           ▼                         ▼             │  │
-│  │  ┌────────────────────────────────────────────────────────────────────────────┐  │  │
-│  │  │               Agentic AXTree & Markdown Distiller                          │  │  │
-│  │  │  - Maps interactables to [@1], [@2] action IDs                             │  │  │
-│  │  │  - Strips ads, tracking pixels, sub-pixel CSS clutter                      │  │  │
-│  │  │  - Generates token-condensed Markdown & Action Maps (< 2ms)                │  │  │
-│  │  └────────────────────────────────────────────────────────────────────────────┘  │  │
-│  │                                                                                  │  │
-│  │  ┌────────────────────────────────────────────────────────────────────────────┐  │  │
-│  │  │          Speculative Forking Engine (page.fork() < 1ms)                    │  │  │
-│  │  └────────────────────────────────────────────────────────────────────────────┘  │  │
-│  └──────────────────────────────────────────────────────────────────────────────────┘  │
-└────────────────────────────────────────────────────────────────────────────────────────┘
-```
-
----
 
 ## ❓ FAQ & Troubleshooting
 

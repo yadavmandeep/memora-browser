@@ -1,4 +1,4 @@
-# 🪐 Orbis by Memora — Python SDK
+# <img src="https://orbis.memora.company/orbis-logo.svg" alt="Orbis Logo" width="34" height="34" align="center" /> Orbis by Memora — Python SDK
 > **The Agentic Browser. Built for Autonomous Intelligence.**  
 > 🌐 **Website:** [orbis.memora.company](https://orbis.memora.company) • **Company:** [memora.company](https://memora.company)  
 > ⚡ **Core Engine:** Memora Browser Engine (MBE)

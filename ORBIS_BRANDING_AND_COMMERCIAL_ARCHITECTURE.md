@@ -55,7 +55,7 @@ The product ecosystem is organized into a clean, enterprise-grade brand hierarch
 To preserve company intellectual property and prevent unauthorized cloning or forking:
 
 ### A. Private Repository Model
-* The core source repository remains **100% Private** (`yadavmandeep/memora-browser`).
+* The core source repository remains **100% Private** (`memora-company/memora-browser`).
 * Source TypeScript (`src/**/*.ts`), parser internals, stealth evasions, and architectural algorithms are never published publicly.
 
 ### B. Minified & Obfuscated Distribution (NPM / Artifacts)
@@ -153,7 +153,7 @@ Before announcing publicly or registering official assets, complete the followin
 - [ ] **PyPI (Python Package Index):**
   - Search for `orbis-browser`, `memora-browser`.
 - [ ] **Docker Hub / GHCR:**
-  - Claim `ghcr.io/yadavmandeep/memora-browser` or `ghcr.io/memora/orbis`.
+  - Claim `ghcr.io/memora-company/memora-browser` or `ghcr.io/memora/orbis`.
 
 ### 3. Trademark & Brand Protection
 - [ ] **USPTO & WIPO Trademark Search:**
@@ -161,7 +161,7 @@ Before announcing publicly or registering official assets, complete the followin
   - Search terms: *"Orbis Browser"*, *"Orbis Agent"*, *"Orbis by Memora"*.
   - *Note:* "Orbis by Memora" provides exceptional distinctiveness and defensibility.
 - [ ] **GitHub Namespace:**
-  - Repository remains `yadavmandeep/memora-browser`.
+  - Repository remains `memora-company/memora-browser`.
 
 ---
 

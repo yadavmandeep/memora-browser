@@ -1,7 +1,7 @@
 /**
  * Memora Browser — Live Production Login & Session Test
  * Target: https://app.memora.company/
- * User: yadavmandeep96@gmail.com
+ * User: memora-company96@gmail.com
  */
 
 import { MemoraBrowser } from '../src/index.js';
@@ -24,9 +24,9 @@ async function testMemoraProductionApp() {
   console.log(`  ✓ Page Title: "${page.title()}"`);
 
   // Step 2: Authenticate with User Credentials
-  console.log('\n🔐 [Step 2]: Executing Login for User: yadavmandeep96@gmail.com ...');
+  console.log('\n🔐 [Step 2]: Executing Login for User: memora-company96@gmail.com ...');
   const authPayload = {
-    email: 'yadavmandeep96@gmail.com',
+    email: 'memora-company96@gmail.com',
     password: 'Admin@123'
   };
 
