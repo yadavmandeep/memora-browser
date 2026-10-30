@@ -315,3 +315,4 @@ If you see the distilled Markdown and Action Map output in < 20ms, your installa
 ---
 
 *Need help or feature requests? Open an issue on [GitHub](https://github.com/yadavmandeep/memora-browser).*
+
