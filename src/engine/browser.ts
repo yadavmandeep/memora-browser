@@ -1,9 +1,13 @@
-import { MemoraPage } from './page.js';
+import { MemoraPage, OrbisPage } from './page.js';
 import { BrowserOptions } from '../types/index.js';
 import { DispatcherPool } from '../network/proxy.js';
 
-export class MemoraBrowser {
-  private pages: Map<string, MemoraPage> = new Map();
+/**
+ * 🪐 OrbisBrowser — Next-Gen Agentic Browser Engine (https://orbis.memora.company)
+ * Powered by Memora Browser Engine (MBE) with native CDP, W3C WebDriver, and anti-detect stealth.
+ */
+export class OrbisBrowser {
+  private pages: Map<string, OrbisPage> = new Map();
   public readonly options: BrowserOptions;
   // One connection pool (direct + proxy agents) shared by every page
   private readonly pool: DispatcherPool;
@@ -22,13 +26,13 @@ export class MemoraBrowser {
     this.pool = new DispatcherPool(this.options.network!);
   }
 
-  public newPage(): MemoraPage {
+  public newPage(): OrbisPage {
     const page = new MemoraPage(this.options.stealth !== false, this.options.network, this.pool);
     this.pages.set(page.id, page);
     return page;
   }
 
-  public getPage(id: string): MemoraPage | undefined {
+  public getPage(id: string): OrbisPage | undefined {
     return this.pages.get(id);
   }
 
@@ -38,11 +42,11 @@ export class MemoraBrowser {
     return this.pages.delete(id);
   }
 
-  public listPages(): MemoraPage[] {
+  public listPages(): OrbisPage[] {
     return Array.from(this.pages.values());
   }
 
-  public get defaultPage(): MemoraPage {
+  public get defaultPage(): OrbisPage {
     if (this.pages.size === 0) {
       return this.newPage();
     }
@@ -57,7 +61,8 @@ export class MemoraBrowser {
 }
 
 /**
- * 🪐 OrbisBrowser — Next-Gen Agentic Browser (Powered by Memora Browser Engine)
+ * Backward compatibility alias: MemoraBrowser
+ * @deprecated Please use `OrbisBrowser` directly.
  */
-export const OrbisBrowser = MemoraBrowser;
-export type OrbisBrowser = MemoraBrowser;
+export const MemoraBrowser = OrbisBrowser;
+export type MemoraBrowser = OrbisBrowser;

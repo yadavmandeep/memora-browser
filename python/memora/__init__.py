@@ -1,3 +1,3 @@
-from .agent import MemoraAgent, OrbisAgent, MemoraSnapshot, OrbisSnapshot
+from .agent import OrbisAgent, OrbisSnapshot, MemoraAgent, MemoraSnapshot
 
-__all__ = ["MemoraAgent", "OrbisAgent", "MemoraSnapshot", "OrbisSnapshot"]
+__all__ = ["OrbisAgent", "OrbisSnapshot", "MemoraAgent", "MemoraSnapshot"]

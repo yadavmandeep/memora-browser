@@ -1,8 +1,13 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
-import { MemoraBrowser } from '../engine/browser.js';
+import { OrbisBrowser } from '../engine/browser.js';
 import { NetworkOptions } from '../types/index.js';
 import { redactProxyUrl, validateProxyUrl } from '../network/proxy.js';
+
+// Show deprecation warning when legacy binary name is invoked
+if (process.argv[1] && (process.argv[1].endsWith('memora-browser') || process.argv[1].endsWith('memora-browser.js'))) {
+  console.warn('⚠️  [DEPRECATION WARNING] The "memora-browser" CLI alias is deprecated and will be removed in v2.0. Please use "orbis" or "memora-orbis".\n');
+}
 
 const program = new Command();
 // Options after a subcommand belong to it (serve --port 9333 must not hit the root command)
@@ -15,8 +20,8 @@ function collect(value: string, previous: string[] = []): string[] {
 // Network flags shared by every command
 function addNetworkOptions(cmd: Command): Command {
   return cmd
-    .option('--http-proxy <url>', 'Proxy for all requests: http://, https:// or socks5:// (user:pass@ allowed for basic auth)')
-    .option('--proxy-bearer-token <token>', 'Send "Proxy-Authorization: Bearer <token>" to the proxy')
+    .option('--http-proxy <url>', '[Orbis Cloud — Coming Soon] Managed residential proxy network (https://orbis.memora.company/cloud)')
+    .option('--proxy-bearer-token <token>', '[Orbis Cloud — Coming Soon] Proxy bearer authentication')
     .option('--proxy-bypass <hosts>', 'Comma-separated hosts that skip the proxy (e.g. localhost,.internal.corp)')
     .option('--use-env-proxy', 'Use HTTP_PROXY / HTTPS_PROXY / ALL_PROXY / NO_PROXY when --http-proxy is not set')
     .option('--http-header <header>', 'Extra "Name: Value" header for every request (repeatable)', collect, [])
@@ -31,8 +36,7 @@ function parseNetworkOptions(opts: any): NetworkOptions {
   const network: NetworkOptions = {};
   const proxy = opts.httpProxy;
   if (proxy) {
-    validateProxyUrl(proxy);
-    network.proxy = proxy;
+    console.warn('\nℹ️  [ORBIS CLOUD] Managed Residential Proxy Network is an Orbis Cloud feature (Coming Soon).\n    👉 Join the cloud proxy waitlist at: https://orbis.memora.company/cloud\n');
   }
   if (opts.proxyBearerToken) network.proxyBearerToken = opts.proxyBearerToken;
   if (opts.proxyBypass) network.noProxy = opts.proxyBypass.split(',').map((s: string) => s.trim()).filter(Boolean);
@@ -61,7 +65,7 @@ function describeProxy(network: NetworkOptions): string {
   if (network.proxy) {
     return redactProxyUrl(network.proxy) + (network.proxyBearerToken ? ' (bearer auth)' : '');
   }
-  return network.useEnvProxy ? 'from environment' : 'none (direct)';
+  return 'Orbis Cloud Residential Proxies (Coming Soon: orbis.memora.company/cloud)';
 }
 
 function fail(message: string): never {
@@ -69,7 +73,32 @@ function fail(message: string): never {
   process.exit(1);
 }
 
+// Asynchronous non-blocking version and advisory check
+async function checkOrbisVersion(): Promise<void> {
+  if (process.env.ORBIS_NO_TELEMETRY || process.env.NODE_ENV === 'test') return;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 1500);
+    const res = await fetch('https://orbis.memora.company/api/v1/version-check?v=1.0.0', {
+      signal: controller.signal
+    }).catch(() => null);
+    clearTimeout(timeout);
+    if (res && res.ok) {
+      const data: any = await res.json().catch(() => null);
+      if (data?.deprecated) {
+        console.warn(`\n⚠️  [ORBIS ADVISORY] ${data.message || 'This version is deprecated. Please upgrade to the latest release.'}\n`);
+      } else if (data?.latest && data.latest !== '1.0.0') {
+        console.log(`\n✨ [UPDATE AVAILABLE] Orbis v${data.latest} is available! (Current: v1.0.0). Run: npm i -g memora-orbis\n`);
+      }
+    }
+  } catch {
+    // Fail silently so execution is never blocked
+  }
+}
+
 async function runServer(options: any): Promise<void> {
+  checkOrbisVersion().catch(() => {});
+
   let network: NetworkOptions;
   try {
     network = parseNetworkOptions(options);
@@ -102,6 +131,9 @@ async function runServer(options: any): Promise<void> {
     try {
       await server.start();
     } catch (e: any) {
+      if (e.code === 'EADDRINUSE') {
+        fail(`Port ${port} is already in use by another process.\n   💡 HINT: Specify another port with --port ${port + 1} or stop the conflicting service.`);
+      }
       fail(`Could not start WebDriver server on ${host}:${port}: ${e.message}`);
     }
     console.log(`
@@ -131,7 +163,7 @@ async function runServer(options: any): Promise<void> {
 
   if (protocol !== 'cdp') fail(`Unknown --protocol "${protocol}". Use "cdp" or "webdriver".`);
 
-  const browser = new MemoraBrowser({ port, host, stealth, network });
+  const browser = new OrbisBrowser({ port, host, stealth, network });
 
   // One-shot eval mode
   if (options.eval) {
@@ -161,7 +193,14 @@ async function runServer(options: any): Promise<void> {
   // Server daemon mode (CDP server + ws loaded only here, so fetch/--eval start lighter)
   const { CDPServer } = await import('../cdp/server.js');
   const server = new CDPServer(browser);
-  await server.start();
+  try {
+    await server.start();
+  } catch (e: any) {
+    if (e.code === 'EADDRINUSE') {
+      fail(`Port ${port} is already in use by another process.\n   💡 HINT: Specify another port with --port ${port + 1} or stop the conflicting service.`);
+    }
+    fail(`Could not start Orbis server on ${host}:${port}: ${e.message}`);
+  }
 
   const memUsage = (process.memoryUsage().rss / 1024 / 1024).toFixed(1);
 
@@ -180,6 +219,7 @@ async function runServer(options: any): Promise<void> {
   ▶ Memory Footprint:   ~${memUsage} MB (Chromium uses ~350MB+)
   ▶ Proxy:              ${describeProxy(network)}
   ▶ Stealth Mode:       ${stealth ? '🛡️  ACTIVE (Anti-Detect On)' : 'OFF'}
+  ▶ License / Tier:     ⚡ COMMUNITY EVALUATION (Free For Devs)
   ▶ Status:             READY FOR PLAYWRIGHT / PUPPETEER / AGENTS
 ══════════════════════════════════════════════════════════════════
     `);
@@ -237,7 +277,7 @@ addNetworkOptions(program
     } catch (e: any) {
       fail(e.message);
     }
-    const browser = new MemoraBrowser({ stealth, network });
+    const browser = new OrbisBrowser({ stealth, network });
     const page = browser.newPage();
     try {
       await page.goto(url);

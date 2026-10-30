@@ -159,4 +159,5 @@ export interface BrowserOptions {
   timeout?: number;
   network?: NetworkOptions;
   engine?: 'native' | 'chrome' | 'auto';
+  apiKey?: string;
 }

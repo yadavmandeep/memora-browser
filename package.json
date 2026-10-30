@@ -15,6 +15,7 @@
     "dist",
     "README.md",
     "INSTALLATION.md",
+    "LICENSE.md",
     "assets"
   ],
   "scripts": {
@@ -50,7 +51,7 @@
     "proxy"
   ],
   "author": "Memora (https://memora.company)",
-  "license": "Apache-2.0",
+  "license": "SEE LICENSE IN LICENSE.md",
   "dependencies": {
     "commander": "^13.1.0",
     "css-select": "^5.1.0",

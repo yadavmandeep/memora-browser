@@ -8,14 +8,13 @@ version = "1.0.0"
 description = "Orbis by Memora — Official Python SDK for Agentic Browser (Browser-Use, LangChain, CrewAI)"
 readme = "README.md"
 requires-python = ">=3.9"
-license = { text = "Apache-2.0" }
+license = { text = "Commercial / Proprietary - see LICENSE.md" }
 authors = [
     { name = "Memora", email = "support@memora.company" }
 ]
 keywords = ["headless-browser", "orbis", "memora", "cdp", "ai-agents", "browser-use", "langchain", "web-automation"]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Topic :: Internet :: WWW/HTTP :: Browsers",
 ]

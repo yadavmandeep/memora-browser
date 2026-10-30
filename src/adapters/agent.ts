@@ -1,5 +1,5 @@
-import { MemoraBrowser } from '../engine/browser.js';
-import { MemoraPage } from '../engine/page.js';
+import { OrbisBrowser, MemoraBrowser } from '../engine/browser.js';
+import { MemoraPage, OrbisPage } from '../engine/page.js';
 import { CDPServer } from '../cdp/server.js';
 import {
   BrowserOptions,
@@ -10,63 +10,77 @@ import {
   SessionData
 } from '../types/index.js';
 
-export interface MemoraAgentOptions extends BrowserOptions {
+export interface OrbisAgentOptions extends BrowserOptions {
   cdpPort?: number;
 }
 
+export type MemoraAgentOptions = OrbisAgentOptions;
+
 /**
- * ⚡ MemoraAgent — High-level 1-line Agent Controller
- * Provides seamless, high-velocity automation for LLM agents (LangChain, Stagehand, Browser-Use, etc.)
+ * 🪐 OrbisAgent — Autonomous Task Runner & High-Velocity Agent Controller
+ * Official Agent SDK for Orbis by Memora (https://orbis.memora.company).
+ * Provides seamless 1-line automation for LLM agents (LangChain, Stagehand, Browser-Use, etc.)
  */
-export class MemoraAgent {
-  public readonly browser: MemoraBrowser;
-  public page: MemoraPage;
+export class OrbisAgent {
+  public readonly browser: OrbisBrowser;
+  public page: OrbisPage;
   public readonly cdpServer?: CDPServer;
+  public apiKey?: string;
   private isExternalCdp = false;
   private cdpHttpUrl?: string;
 
-  constructor(browser: MemoraBrowser, page: MemoraPage, cdpServer?: CDPServer) {
+  constructor(browser: OrbisBrowser, page: OrbisPage, cdpServer?: CDPServer) {
     this.browser = browser;
     this.page = page;
     this.cdpServer = cdpServer;
   }
 
   /**
-   * Launch a new local Memora browser instance and return an active agent controller.
+   * Launch a new local Orbis browser instance and return an active agent controller.
    * Example:
-   *   const agent = await MemoraAgent.launch({ stealth: true, cdpPort: 9222 });
+   *   const agent = await OrbisAgent.launch({ stealth: true, cdpPort: 9222 });
    */
-  public static async launch(options: MemoraAgentOptions = {}): Promise<MemoraAgent> {
+  public static async launch(options: OrbisAgentOptions = {}): Promise<OrbisAgent> {
     const port = options.cdpPort ?? options.port ?? 9222;
-    const browser = new MemoraBrowser({
+    const apiKey = options.apiKey || process.env.ORBIS_API_KEY || process.env.MEMORA_API_KEY;
+    const browser = new OrbisBrowser({
       port,
       stealth: options.stealth ?? true,
+      apiKey,
       ...options
     });
     const cdpServer = new CDPServer(browser);
     await cdpServer.start();
     const page = browser.newPage();
-    const agent = new MemoraAgent(browser, page, cdpServer);
+    const agent = new OrbisAgent(browser, page, cdpServer);
     agent.cdpHttpUrl = `http://127.0.0.1:${port}`;
+    agent.apiKey = apiKey;
     return agent;
   }
 
   /**
-   * Connect to an existing running Memora CDP endpoint over HTTP / WebSocket.
+   * Connect to an existing running Orbis CDP endpoint over HTTP / WebSocket.
    * Example:
-   *   const agent = await MemoraAgent.connect('http://127.0.0.1:9222');
+   *   const agent = await OrbisAgent.connect('http://127.0.0.1:9222', { apiKey: '...' });
    */
-  public static async connect(cdpUrl: string = 'http://127.0.0.1:9222'): Promise<MemoraAgent> {
+  public static async connect(cdpUrl: string = 'http://127.0.0.1:9222', options: { apiKey?: string } = {}): Promise<OrbisAgent> {
     const parsed = new URL(cdpUrl);
-    const versionRes = await fetch(`${parsed.origin}/json/version`);
-    if (!versionRes.ok) {
-      throw new Error(`Failed to connect to Memora CDP at ${cdpUrl}: HTTP ${versionRes.status}`);
+    const apiKey = options.apiKey || process.env.ORBIS_API_KEY || process.env.MEMORA_API_KEY;
+    const headers: Record<string, string> = {};
+    if (apiKey) {
+      headers['x-api-key'] = apiKey;
+      headers['Authorization'] = `Bearer ${apiKey}`;
     }
-    const browser = new MemoraBrowser({ port: Number(parsed.port) || 9222, host: parsed.hostname });
+    const versionRes = await fetch(`${parsed.origin}/json/version`, { headers });
+    if (!versionRes.ok) {
+      throw new Error(`Failed to connect to Orbis CDP at ${cdpUrl}: HTTP ${versionRes.status}`);
+    }
+    const browser = new OrbisBrowser({ port: Number(parsed.port) || 9222, host: parsed.hostname, apiKey });
     const page = browser.newPage();
-    const agent = new MemoraAgent(browser, page);
+    const agent = new OrbisAgent(browser, page);
     agent.isExternalCdp = true;
     agent.cdpHttpUrl = parsed.origin;
+    agent.apiKey = apiKey;
     return agent;
   }
 
@@ -122,9 +136,9 @@ export class MemoraAgent {
   /**
    * Speculatively fork the current page in < 1ms to test alternative paths without network cost.
    */
-  public fork(): MemoraAgent {
+  public fork(): OrbisAgent {
     const forkedPage = this.page.fork();
-    return new MemoraAgent(this.browser, forkedPage, this.cdpServer);
+    return new OrbisAgent(this.browser, forkedPage, this.cdpServer);
   }
 
   /**
@@ -170,9 +184,8 @@ export class MemoraAgent {
 }
 
 /**
- * 🪐 OrbisAgent — Autonomous Task Runner & Agent Controller
- * Built into Orbis by Memora (https://orbis.memora.company).
+ * Backward compatibility alias: MemoraAgent
+ * @deprecated Please use `OrbisAgent` directly.
  */
-export const OrbisAgent = MemoraAgent;
-export type OrbisAgent = MemoraAgent;
-export type OrbisAgentOptions = MemoraAgentOptions;
+export const MemoraAgent = OrbisAgent;
+export type MemoraAgent = OrbisAgent;

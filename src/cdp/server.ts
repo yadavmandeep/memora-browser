@@ -27,11 +27,13 @@ export class CDPServer {
   private dispatcher: CDPDispatcher;
   private port: number;
   private host: string;
+  public readonly apiKey?: string;
 
   constructor(browser: MemoraBrowser) {
     this.browser = browser;
     this.port = browser.options.port || 9222;
     this.host = browser.options.host || '127.0.0.1';
+    this.apiKey = browser.options.apiKey || process.env.ORBIS_API_KEY || process.env.MEMORA_API_KEY;
     this.dispatcher = new CDPDispatcher(browser);
 
     this.httpServer = http.createServer((req, res) => {
@@ -40,6 +42,27 @@ export class CDPServer {
 
     this.wss = new WebSocketServer({ noServer: true });
     this.setupWebSocket();
+  }
+
+  private isAuthorized(req: http.IncomingMessage, url: URL): boolean {
+    if (!this.apiKey) return true;
+
+    // 1. Header: x-api-key
+    const headerKey = req.headers['x-api-key'];
+    if (typeof headerKey === 'string' && headerKey.trim() === this.apiKey) return true;
+
+    // 2. Header: Authorization: Bearer <key>
+    const authHeader = req.headers['authorization'];
+    if (typeof authHeader === 'string') {
+      const match = authHeader.match(/^Bearer\s+(.+)$/i);
+      if (match && match[1].trim() === this.apiKey) return true;
+    }
+
+    // 3. Query params: ?apiKey=<key> or ?token=<key>
+    const queryKey = url.searchParams.get('apiKey') || url.searchParams.get('token');
+    if (queryKey && queryKey.trim() === this.apiKey) return true;
+
+    return false;
   }
 
   private handleHttpRequest(req: http.IncomingMessage, res: http.ServerResponse): void {

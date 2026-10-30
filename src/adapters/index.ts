@@ -1,5 +1,5 @@
-export { MemoraAgent, OrbisAgent } from './agent.js';
-export type { MemoraAgentOptions, OrbisAgentOptions } from './agent.js';
+export { OrbisAgent, MemoraAgent } from './agent.js';
+export type { OrbisAgentOptions, MemoraAgentOptions } from './agent.js';
 export { getBrowserUseConfig, getOrbisBrowserUseConfig } from './browser-use.js';
 export type { BrowserUseConfig } from './browser-use.js';
 export { getStagehandConfig, getOrbisStagehandConfig } from './stagehand.js';
