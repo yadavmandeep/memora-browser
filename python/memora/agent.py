@@ -25,12 +25,12 @@ class OrbisAgent:
     LangChain, CrewAI, AutoGen, and independent LLM agents.
     """
 
-    def __init__(self, base_url: str = "http://127.0.0.1:9222", api_key: Optional[str] = None):
+    def __init__(self, base_url: str = "http://localhost:9222", api_key: Optional[str] = None):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key or os.environ.get("ORBIS_API_KEY") or os.environ.get("MEMORA_API_KEY")
 
     @classmethod
-    def connect(cls, base_url: str = "http://127.0.0.1:9222", api_key: Optional[str] = None) -> "OrbisAgent":
+    def connect(cls, base_url: str = "http://localhost:9222", api_key: Optional[str] = None) -> "OrbisAgent":
         """Connect to a running Orbis Browser daemon."""
         agent = cls(base_url, api_key=api_key)
         # Verify connectivity
@@ -109,6 +109,10 @@ class OrbisAgent:
         else:
             payload["type"] = "click"
         return self._post("/orbis/act", payload)
+
+    def select_option(self, target: str, value_or_text: str) -> Dict[str, Any]:
+        """Select a dropdown option by value or visible text using any locator format."""
+        return self._post("/orbis/select-option", {"target": target, "value": value_or_text})
 
     def fill_form(self, fields: Dict[str, str], submit: bool = True) -> Dict[str, Any]:
         """Fill multiple fields in one atomic turn and optionally submit."""
