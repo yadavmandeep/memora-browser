@@ -67,7 +67,7 @@ async function runAgentLoop() {
     </html>
   `;
 
-  page.setContent(sampleHtml, 'https://app.memora.ai/login');
+  page.setContent(sampleHtml, 'https://app.memora.company/login');
 
   // 2. Extract Semantic Action Map for the AI Agent
   console.log('🧠 Extracting Semantic Action Map for LLM prompt...');

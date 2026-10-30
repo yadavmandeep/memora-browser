@@ -130,8 +130,8 @@ async function testLoginPage() {
 
   if (emailAction) {
     console.log(`  ▶ Found Email Input: [${emailAction.actionId}] ${emailAction.selector}`);
-    console.log(`  ▶ Typing: "admin@memora.ai" into ${emailAction.actionId} ...`);
-    page.type(emailAction.actionId, 'admin@memora.ai');
+    console.log(`  ▶ Typing: "admin@memora.company" into ${emailAction.actionId} ...`);
+    page.type(emailAction.actionId, 'admin@memora.company');
   }
 
   if (passAction) {

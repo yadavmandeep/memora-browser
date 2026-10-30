@@ -168,3 +168,11 @@ export class MemoraAgent {
     }
   }
 }
+
+/**
+ * 🪐 OrbisAgent — Autonomous Task Runner & Agent Controller
+ * Built into Orbis by Memora (https://orbis.memora.company).
+ */
+export const OrbisAgent = MemoraAgent;
+export type OrbisAgent = MemoraAgent;
+export type OrbisAgentOptions = MemoraAgentOptions;

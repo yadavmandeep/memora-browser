@@ -759,9 +759,10 @@ export class CDPDispatcher {
         return {};
       }
 
-      // 9. Memora & Lightpanda Compatibility Domains
+      // 9. Orbis, Memora & Lightpanda Compatibility Domains
       case 'LP':
-      case 'Memora': {
+      case 'Memora':
+      case 'Orbis': {
         if (action === 'getSemanticSnapshot' || action === 'getSemanticTree' || action === 'snapshot') {
           return page.getSemanticSnapshot({
             focusSelector: params.focusSelector,
@@ -810,7 +811,7 @@ export class CDPDispatcher {
             page.restoreSession(params.session);
             return { success: true, url: page.url };
           }
-          throw new Error('Memora.loadSession requires filePath or session parameter');
+          throw new Error('Orbis.loadSession (or Memora.loadSession) requires filePath or session parameter');
         }
         if (action === 'act') {
           const { actionId, type, text } = params;

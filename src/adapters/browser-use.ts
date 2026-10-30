@@ -23,3 +23,5 @@ export function getBrowserUseConfig(agentOrPort: MemoraAgent | number = 9222): B
     ]
   };
 }
+
+export const getOrbisBrowserUseConfig = getBrowserUseConfig;

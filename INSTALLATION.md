@@ -1,5 +1,7 @@
-# 🚀 Memora Browser — End-User Installation & Setup Guide
-> **The Agent-Native, Zero-Graphics Headless Browser Engine for AI Agents & LLMs**  
+# 🪐 ORBIS BY MEMORA — End-User Installation & Setup Guide
+### *The Web, Working for You. Built for Autonomous Intelligence.*
+> 🌐 **Product Portal:** [orbis.memora.company](https://orbis.memora.company) • **Company:** [memora.company](https://memora.company)  
+> ⚡ **Core Engine:** Memora Browser Engine (MBE) (`memora-browser`)  
 > *< 15ms Startup | 8.5x Less RAM than Chromium | Up to 95% LLM Token Savings*
 
 ---

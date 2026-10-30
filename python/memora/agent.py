@@ -19,7 +19,7 @@ class MemoraSnapshot:
 
 class MemoraAgent:
     """
-    ⚡ MemoraAgent — Python Agent SDK for Memora Browser.
+    🪐 OrbisAgent / MemoraAgent — Official Python Agent SDK for Orbis by Memora (https://orbis.memora.company).
     Provides 1-line connection and high-level agentic browsing for Browser-Use,
     LangChain, CrewAI, AutoGen, and independent LLM agents.
     """
@@ -142,3 +142,7 @@ class MemoraAgent:
             return [memora_navigate, memora_act, memora_diff]
         except ImportError:
             raise ImportError("LangChain is not installed. Install via `pip install langchain` to use to_langchain_tools().")
+
+# Orbis by Memora Aliases
+OrbisSnapshot = MemoraSnapshot
+OrbisAgent = MemoraAgent

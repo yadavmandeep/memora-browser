@@ -1,6 +1,6 @@
 export * from './types/index.js';
-export { MemoraBrowser } from './engine/browser.js';
-export { MemoraPage } from './engine/page.js';
+export { MemoraBrowser, OrbisBrowser } from './engine/browser.js';
+export { MemoraPage, OrbisPage } from './engine/page.js';
 export { CDPServer } from './cdp/server.js';
 export { CDPDispatcher } from './cdp/dispatcher.js';
 export { MemoraDocument, MemoraElement, MemoraNode, MemoraTextNode, MemoraCommentNode } from './dom/node.js';

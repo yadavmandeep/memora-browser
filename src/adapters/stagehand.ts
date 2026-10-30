@@ -20,3 +20,5 @@ export function getStagehandConfig(agentOrPort: MemoraAgent | number = 9222): St
     enableCaching: false
   };
 }
+
+export const getOrbisStagehandConfig = getStagehandConfig;

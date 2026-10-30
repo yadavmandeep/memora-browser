@@ -1,11 +1,13 @@
 {
   "name": "memora-browser",
   "version": "1.0.0",
-  "description": "Agent-native, ultra-lightweight headless browser engine with CDP and W3C WebDriver (Selenium) compatibility, proxy support, semantic AXTree distillation, and built-in stealth",
+  "description": "Orbis by Memora — The Web, Working for You. Agent-native, ultra-lightweight headless browser engine with CDP, W3C WebDriver, semantic AXTree distillation, and built-in stealth",
+  "homepage": "https://orbis.memora.company",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
+    "orbis": "./dist/cli/index.js",
     "memora-browser": "./dist/cli/index.js"
   },
   "scripts": {
@@ -35,7 +37,7 @@
     "webdriver",
     "proxy"
   ],
-  "author": "Memora Team",
+  "author": "Memora (https://memora.company)",
   "license": "Apache-2.0",
   "dependencies": {
     "commander": "^13.1.0",

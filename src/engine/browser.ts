@@ -55,3 +55,9 @@ export class MemoraBrowser {
     this.pool.close().catch(() => {});
   }
 }
+
+/**
+ * 🪐 OrbisBrowser — Next-Gen Agentic Browser (Powered by Memora Browser Engine)
+ */
+export const OrbisBrowser = MemoraBrowser;
+export type OrbisBrowser = MemoraBrowser;

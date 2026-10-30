@@ -371,7 +371,7 @@ const SETTINGS_FORM_HTML = `<!DOCTYPE html>
         </div>
         <div class="form-row">
           <label for="contact-email">Security Escalation Email</label>
-          <input type="email" id="contact-email" name="security_email" value="security@memora.ai">
+          <input type="email" id="contact-email" name="security_email" value="security@memora.company">
         </div>
         <div class="form-row">
           <label for="cluster-tier">Compute Cluster Tier</label>

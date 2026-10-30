@@ -106,9 +106,12 @@ async function runServer(options: any): Promise<void> {
     }
     console.log(`
 ╔════════════════════════════════════════════════════════════════╗
-║                ⚡ MEMORA BROWSER — WEBDRIVER MODE               ║
+║             🪐 ORBIS BY MEMORA — WEBDRIVER MODE                ║
 ║          W3C WebDriver for Selenium, WebdriverIO, etc.         ║
 ╚════════════════════════════════════════════════════════════════╝
+  ▶ Website & Docs:     https://orbis.memora.company
+  ▶ Parent Company:     https://memora.company
+  ▶ Core Engine:        Memora Browser Engine (MBE)
   ▶ WebDriver URL:      http://${host}:${port}
   ▶ Status:             http://${host}:${port}/status
   ▶ Max Sessions:       ${options.maxSessions}
@@ -132,7 +135,7 @@ async function runServer(options: any): Promise<void> {
 
   // One-shot eval mode
   if (options.eval) {
-    console.log(`\n🔍 [Memora] Fetching & Distilling: ${options.eval} ...`);
+    console.log(`\n🔍 [Orbis] Fetching & Distilling: ${options.eval} ...`);
     const startTime = performance.now();
     const page = browser.newPage();
     try {
@@ -164,12 +167,16 @@ async function runServer(options: any): Promise<void> {
 
   console.log(`
 ╔════════════════════════════════════════════════════════════════╗
-║                   ⚡ MEMORA AGENTIC BROWSER                    ║
-║         Ultra-Fast Headless Engine for AI Agents & LLMs        ║
+║                      🪐 ORBIS BY MEMORA                        ║
+║        An Agentic Browser • Built for Autonomous AI            ║
+║              Powered by Memora Browser Engine                  ║
 ╚════════════════════════════════════════════════════════════════╝
+  ▶ Website & Docs:     https://orbis.memora.company
+  ▶ Parent Company:     https://memora.company
+  ▶ Core Engine:        Memora Browser Engine (MBE)
   ▶ CDP WebSocket:      ws://${host}:${port}/devtools/browser/memora-root
   ▶ Discovery Endpoint: http://${host}:${port}/json/version
-  ▶ Agent Snapshot:     http://${host}:${port}/memora/snapshot
+  ▶ Agent Snapshot:     http://${host}:${port}/orbis/snapshot (or /memora/snapshot)
   ▶ Memory Footprint:   ~${memUsage} MB (Chromium uses ~350MB+)
   ▶ Proxy:              ${describeProxy(network)}
   ▶ Stealth Mode:       ${stealth ? '🛡️  ACTIVE (Anti-Detect On)' : 'OFF'}
@@ -179,7 +186,7 @@ async function runServer(options: any): Promise<void> {
 
   // Handle graceful shutdown
   const shutdown = async () => {
-    console.log('\n[Memora] Shutting down browser server...');
+    console.log('\n[Orbis] Shutting down browser server...');
     await server.stop();
     browser.close();
     process.exit(0);
@@ -201,7 +208,7 @@ function addServerOptions(cmd: Command): Command {
 
 addServerOptions(program
   .name('memora-browser')
-  .description('Memora Agentic Headless Browser — Ultra-fast, CDP & WebDriver compatible, AI-Native browser engine')
+  .description('Orbis by Memora — The Web, Working for You. Built for Autonomous Intelligence (orbis.memora.company)')
   .version('1.0.0'))
   .option('--eval <url>', 'Fetch a URL, distill semantic snapshot, and output to console')
   .option('--mcp', 'Run as Model Context Protocol (MCP) server over stdio for Cursor, Claude, Antigravity')

@@ -104,8 +104,10 @@ export class MCPServer {
           result: {
             protocolVersion: '2024-11-05',
             serverInfo: {
-              name: 'memora-browser',
-              version: '1.0.0'
+              name: 'orbis-browser',
+              version: '1.0.0',
+              title: 'Orbis by Memora',
+              website: 'https://orbis.memora.company'
             },
             capabilities: {
               tools: {}
@@ -134,7 +136,7 @@ export class MCPServer {
             tools: [
               {
                 name: 'memora_browse',
-                description: 'Fast, token-condensed headless web browser for AI coding agents. Loads URL, distills page into clean Markdown and interactive Action Map (@1, @2) with 95% token savings. Supports focus and exclude filters.',
+                description: 'Orbis by Memora (https://orbis.memora.company). Fast, token-condensed headless web browser for AI coding agents. Loads URL, distills page into clean Markdown and interactive Action Map (@1, @2) with 95% token savings. Supports focus and exclude filters.',
                 inputSchema: {
                   type: 'object',
                   properties: {
@@ -357,7 +359,8 @@ export class MCPServer {
   }
 
   private async executeTool(name: string, args: any): Promise<string> {
-    switch (name) {
+    const canonicalName = name.startsWith('orbis_') ? 'memora_' + name.slice(6) : name;
+    switch (canonicalName) {
       case 'memora_browse': {
         const { url, timeout, focus, exclude } = args;
         const t0 = performance.now();

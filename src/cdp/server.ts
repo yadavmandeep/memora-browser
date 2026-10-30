@@ -65,6 +65,10 @@ export class CDPServer {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36',
         'V8-Version': '12.8.0',
         'WebKit-Version': '537.36',
+        product: 'Orbis/1.0.0',
+        engine: 'Memora Browser Engine (MBE)',
+        website: 'https://orbis.memora.company',
+        company: 'https://memora.company',
         webSocketDebuggerUrl: `ws://${this.host}:${this.port}/devtools/browser/memora-root`
       };
       res.writeHead(200);
@@ -115,8 +119,8 @@ export class CDPServer {
       return;
     }
 
-    // 5. Agentic Endpoint: /memora/snapshot (Instant LLM distill view)
-    if (pathname === '/memora/snapshot') {
+    // 5. Agentic Endpoint: /orbis/snapshot & /memora/snapshot (Instant LLM distill view)
+    if (pathname === '/orbis/snapshot' || pathname === '/memora/snapshot') {
       const targetId = url.searchParams.get('id');
       const page = targetId ? this.browser.getPage(targetId) : this.browser.defaultPage;
       if (!page) {
@@ -140,8 +144,8 @@ export class CDPServer {
       return;
     }
 
-    // 6. Agentic Endpoint: /memora/diff (State comparison)
-    if (pathname === '/memora/diff') {
+    // 6. Agentic Endpoint: /orbis/diff & /memora/diff (State comparison)
+    if (pathname === '/orbis/diff' || pathname === '/memora/diff') {
       const targetId = url.searchParams.get('id');
       const page = targetId ? this.browser.getPage(targetId) : this.browser.defaultPage;
       if (!page) {
@@ -173,8 +177,8 @@ export class CDPServer {
       return;
     }
 
-    // 7. Agentic Endpoint: /memora/fill-form (Atomic multi-field form population)
-    if (pathname === '/memora/fill-form' && req.method === 'POST') {
+    // 7. Agentic Endpoint: /orbis/fill-form & /memora/fill-form (Atomic multi-field form population)
+    if ((pathname === '/orbis/fill-form' || pathname === '/memora/fill-form') && req.method === 'POST') {
       readJsonBody(req).then(async body => {
         const targetId = body.id || url.searchParams.get('id');
         const page = targetId ? this.browser.getPage(targetId) : this.browser.defaultPage;
@@ -207,8 +211,8 @@ export class CDPServer {
       return;
     }
 
-    // 8. Agentic Endpoint: /memora/act (Direct action by @actionId or selector)
-    if (pathname === '/memora/act' && req.method === 'POST') {
+    // 8. Agentic Endpoint: /orbis/act & /memora/act (Direct action by @actionId or selector)
+    if ((pathname === '/orbis/act' || pathname === '/memora/act') && req.method === 'POST') {
       readJsonBody(req).then(body => {
         const targetId = body.id || url.searchParams.get('id');
         const page = targetId ? this.browser.getPage(targetId) : this.browser.defaultPage;
@@ -238,8 +242,8 @@ export class CDPServer {
       return;
     }
 
-    // 9. Agentic Endpoint: /memora/session (Save / load / export session)
-    if (pathname === '/memora/session') {
+    // 9. Agentic Endpoint: /orbis/session & /memora/session (Save / load / export session)
+    if (pathname === '/orbis/session' || pathname === '/memora/session') {
       const targetId = url.searchParams.get('id');
       const page = targetId ? this.browser.getPage(targetId) : this.browser.defaultPage;
       if (!page) {
@@ -273,7 +277,7 @@ export class CDPServer {
       return;
     }
 
-    if (pathname === '/memora/session/save' && req.method === 'POST') {
+    if ((pathname === '/orbis/session/save' || pathname === '/memora/session/save') && req.method === 'POST') {
       readJsonBody(req).then(body => {
         const targetId = body.id || url.searchParams.get('id');
         const page = targetId ? this.browser.getPage(targetId) : this.browser.defaultPage;
@@ -297,8 +301,8 @@ export class CDPServer {
       return;
     }
 
-    // 10. Agentic Endpoint: /memora/goto?url=...
-    if (pathname === '/memora/goto') {
+    // 10. Agentic Endpoint: /orbis/goto & /memora/goto?url=...
+    if (pathname === '/orbis/goto' || pathname === '/memora/goto') {
       const targetUrl = url.searchParams.get('url');
       if (!targetUrl) {
         res.writeHead(400);

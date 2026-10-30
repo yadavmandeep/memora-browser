@@ -18,6 +18,7 @@ import http from 'node:http';
 import WebSocket from 'ws';
 import {
   MemoraBrowser,
+  OrbisBrowser,
   parseHTML,
   convertToMarkdown,
   extractSemanticSnapshot,
@@ -25,9 +26,13 @@ import {
   MCPServer,
   CDPServer,
   MemoraAgent,
+  OrbisAgent,
   getBrowserUseConfig,
+  getOrbisBrowserUseConfig,
   getStagehandConfig,
-  createMemoraLangChainTools
+  getOrbisStagehandConfig,
+  createMemoraLangChainTools,
+  createOrbisLangChainTools
 } from '../src/index.js';
 
 let passed = 0;
@@ -55,7 +60,7 @@ async function run() {
     const html = `
       <html>
         <body>
-          <p>Welcome to <strong>Memora</strong>! Read the <a href="https://memora.ai/docs">documentation</a> or check <code>src/index.ts</code>.</p>
+          <p>Welcome to <strong>Memora</strong>! Read the <a href="https://orbis.memora.company/docs">documentation</a> or check <code>src/index.ts</code>.</p>
         </body>
       </html>
     `;
@@ -63,7 +68,7 @@ async function run() {
     const md = convertToMarkdown(doc);
 
     assert.ok(md.includes('**Memora**'), 'Bold text must be preserved in markdown');
-    assert.ok(md.includes('[documentation](https://memora.ai/docs)'), 'Paragraph link must be preserved in markdown');
+    assert.ok(md.includes('[documentation](https://orbis.memora.company/docs)'), 'Paragraph link must be preserved in markdown');
     assert.ok(md.includes('`src/index.ts`'), 'Inline code must be preserved in markdown');
   });
 
@@ -614,7 +619,7 @@ async function run() {
       // 2. Memora.fillForm
       const fillRes = await sendCDP('Memora.fillForm', {
         fields: {
-          '#username': 'agent@memora.ai',
+          '#username': 'agent@memora.company',
           '#password': 'secretPass'
         },
         submit: false
@@ -672,7 +677,7 @@ async function run() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          fields: { '#email': 'rest.agent@memora.ai' },
+          fields: { '#email': 'rest.agent@memora.company' },
           submit: false
         })
       });
@@ -749,6 +754,47 @@ async function run() {
       assert.equal(tools.length, 5, 'Should export 5 LangChain tools');
       const snapToolResult = await tools[1].invoke({});
       assert.ok(snapToolResult.includes('INTERACTIVE ACTION MAP'));
+    } finally {
+      await agent.close();
+    }
+  });
+
+  await test('Verifies Orbis aliases, OrbisAgent, Orbis CDP domains and REST endpoints', async () => {
+    assert.equal(OrbisBrowser, MemoraBrowser);
+    assert.equal(OrbisAgent, MemoraAgent);
+    assert.equal(getOrbisBrowserUseConfig, getBrowserUseConfig);
+    assert.equal(getOrbisStagehandConfig, getStagehandConfig);
+
+    const agent = await OrbisAgent.launch({ cdpPort: 9449, stealth: true });
+    try {
+      agent.page.setContent(`
+        <html>
+          <head><title>Orbis by Memora</title></head>
+          <body>
+            <h1>Welcome to Orbis by Memora</h1>
+            <input type="text" id="query" value="ai" />
+            <button id="search">Search</button>
+          </body>
+        </html>
+      `, 'http://test/orbis');
+
+      // Test Orbis LangChain tools
+      const orbisTools = createOrbisLangChainTools(agent);
+      assert.equal(orbisTools.length, 5);
+      assert.equal(orbisTools[0].name, 'orbis_navigate');
+
+      // Test /orbis/snapshot REST endpoint
+      const res = await fetch('http://127.0.0.1:9449/orbis/snapshot');
+      assert.equal(res.status, 200);
+      const data = await res.json();
+      assert.ok(data.title.includes('Orbis by Memora'));
+
+      // Test /json/version product branding
+      const verRes = await fetch('http://127.0.0.1:9449/json/version');
+      assert.equal(verRes.status, 200);
+      const verData = await verRes.json();
+      assert.equal(verData.product, 'Orbis/1.0.0');
+      assert.equal(verData.website, 'https://orbis.memora.company');
     } finally {
       await agent.close();
     }

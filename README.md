@@ -1,21 +1,26 @@
-# ⚡ Memora Browser (`memora-browser`)
-> **Agent-Native, Ultra-Fast Headless Browser Engine for AI Agents & LLMs**  
-> *Faster than Chromium, Leaner than Lightpanda, Built for the Agentic Era.*
+# 🪐 ORBIS BY MEMORA
+### *The Web, Working for You.*
+> **An Agentic Browser. Built for Autonomous Intelligence.**  
+> *Explore. Understand. Execute.*  
+>
+> 🌐 **Website:** [orbis.memora.company](https://orbis.memora.company) • **Company:** [memora.company](https://memora.company)  
+> ⚡ **Core Engine:** Memora Browser Engine (MBE) (`memora-browser`) — *Drop-in CDP & W3C WebDriver for AI Agents & LLMs*
 
 ---
 
-## 🌟 Why Memora Browser?
+## 🌟 Why Orbis by Memora?
 
 Traditional headless browsers (Chromium, Firefox, WebKit) were designed for **humans to look at screens**. When AI agents and web scrapers use them, over **80% of CPU and RAM is wasted** computing GPU rasterization, CSS box reflows, font hinting, and compositing layers.
 
 **Lightpanda** proved that stripping the visual graphics pipeline cuts RAM by 10x. But Lightpanda was still built for traditional scrapers—forcing AI agents to ingest **500KB of raw, messy HTML** or **4K pixel screenshots**, burning tens of thousands of LLM tokens and seconds of reasoning latency.
 
-**Memora Browser is fundamentally different**:
-1. **Zero-Graphics Runtime**: Strips Skia/GPU rasterization entirely—giving **< 15ms cold start** and **~18MB base RAM**.
+**Orbis by Memora is fundamentally different**:
+1. **Zero-Graphics Runtime (Memora Browser Engine)**: Strips Skia/GPU rasterization entirely—giving **< 15ms cold start** and **~18MB base RAM**.
 2. **Native AXTree & Action Map Distillation**: Converts live web pages in `< 1ms` into an indexed Semantic Action Tree (`[@1]`, `[@2]`, `[@3]`) and clean Markdown, saving **up to 95% LLM tokens**.
 3. **Drop-in CDP Compatibility**: Exposes standard Chrome DevTools Protocol (`ws://127.0.0.1:9222`), so **Playwright**, **Puppeteer**, **Browser-Use**, and **Stagehand** connect with zero code changes.
 4. **Speculative Branching (`page.fork()`)**: Instant Copy-on-Write page branching in `< 1ms`. Agents can test multiple execution paths simultaneously without making extra network requests.
 5. **Built-in Stealth & Fingerprint Masking**: Engine-level evasion of `navigator.webdriver`, genuine Chrome 130 Client Hints, hardware emulation, and coherent TLS profiles.
+6. **Orbis Agent Autonomous Controller**: High-level, 1-line self-healing agent loop with automatic multi-step form wizard filling and DOM state diffing.
 
 ---
 
@@ -398,5 +403,5 @@ In addition to standard CDP domains (`Page`, `Runtime`, `DOM`, `Network`, `Targe
 ---
 
 ## 📜 License
-Apache-2.0 © 2026 Memora Team.
+Apache-2.0 © 2026 Memora ([memora.company](https://memora.company)). All rights reserved.
 
