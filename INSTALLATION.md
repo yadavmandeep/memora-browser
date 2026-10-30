@@ -91,7 +91,7 @@ from memora import MemoraAgent
 agent = MemoraAgent.connect("http://127.0.0.1:9222")
 
 # Navigate to target page (returns distilled token-efficient snapshot)
-snap = agent.goto("https://news.ycombinator.com")
+snap = agent.goto("https://example.com")
 print(f"Title: {snap.title} | Tokens: ~{snap.token_estimate}")
 print(snap.action_map_text)
 
@@ -288,7 +288,7 @@ Inspect any website and distill it directly from your terminal:
 
 ```bash
 # Evaluate and output distilled semantic action map
-npx memora-browser --eval https://news.ycombinator.com
+npx orbis --eval https://example.com
 
 # Fetch as clean Markdown
 npx memora-browser fetch https://example.com --dump markdown

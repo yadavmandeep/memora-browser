@@ -17,7 +17,7 @@
 
 ## 📑 Table of Contents
 - [🌟 Why Orbis? The Problem with Traditional Browsers](#-why-orbis-the-problem-with-traditional-browsers)
-- [📊 Benchmark vs Chromium & Lightpanda](#-benchmark-comparison)
+- [📊 Benchmark vs Traditional Headless Chromium](#-benchmark-comparison)
 - [⚡ Quick Start: 30 Seconds to Launch](#-quick-start-30-seconds-to-launch)
 - [🔌 Model Context Protocol (MCP) for Cursor, Claude & Windsurf](#-model-context-protocol-mcp-for-cursor--claude)
 - [🧠 1-Line Autonomous Agent Loop (`OrbisAgent`)](#-1-line-autonomous-agent-loop-orbisagent)
@@ -53,19 +53,19 @@ Traditional headless browsers (Chromium, Firefox, WebKit) were designed for **hu
 
 ## 📊 Benchmark Comparison
 
-| Metric | Headless Chromium | Lightpanda | **Orbis (by Memora)** |
-| :--- | :--- | :--- | :--- |
-| **Cold Start Latency** | 1,500ms – 3,000ms | ~50ms | **< 15ms** ⚡ |
-| **RAM Footprint (per tab)** | 350MB – 600MB | 25MB – 40MB | **~18MB – 28MB** 🚀 |
-| **LLM Token Ingestion** | 30,000 – 80,000 tokens | 30,000 – 80,000 tokens | **300 – 1,200 tokens** (95% saving) |
-| **Action Targeting** | Fragile XPath / CSS | Fragile CSS | **Numbered Action IDs (`@1`, `@2`)** |
-| **Speculative Branching** | ❌ (Opens new 400MB tab) | ❌ | **✅ `page.fork()` in < 1ms** |
-| **Playwright / Puppeteer** | Native | CDP (partial) | **Full CDP Wire Protocol** |
-| **Selenium (WebDriver)** | via chromedriver | Native (Classic + BiDi) | **Native W3C Classic** |
-| **Form Wizard Pipeline** | Manual clicks | ❌ | **✅ Atomic & Self-healing** |
-| **State Diffing (`diff()`)**| Manual DOM diffs | ❌ | **✅ Native in < 1ms** |
-| **Proxy Capabilities** | Basic | Basic HTTP(S) | **HTTP(S) + SOCKS5, bearer, bypass** |
-| **Anti-Bot Stealth** | Easily detected | Custom non-standard TLS | **Chrome 130 Genuine Profile** |
+| Metric | Traditional Headless Chromium | **Orbis (by Memora)** |
+| :--- | :--- | :--- |
+| **Cold Start Latency** | 1,500ms – 3,000ms | **< 15ms** ⚡ |
+| **RAM Footprint (per tab)** | 350MB – 600MB | **~18MB – 28MB** 🚀 |
+| **LLM Token Ingestion** | 30,000 – 80,000 tokens | **300 – 1,200 tokens** (95% saving) |
+| **Action Targeting** | Fragile XPath / CSS | **Numbered Action IDs (`@1`, `@2`)** |
+| **Speculative Branching** | ❌ (Opens new 400MB tab) | **✅ `page.fork()` in < 1ms** |
+| **Playwright / Puppeteer** | Native | **Full CDP Wire Protocol** |
+| **Selenium (WebDriver)** | via chromedriver | **Native W3C Classic** |
+| **Form Wizard Pipeline** | Manual clicks | **✅ Atomic & Self-healing** |
+| **State Diffing (`diff()`)**| Manual DOM diffs | **✅ Native in < 1ms** |
+| **Proxy Capabilities** | Basic | **HTTP(S) + SOCKS5, bearer, bypass** |
+| **Anti-Bot Stealth** | Easily detected | **Chrome 130 Genuine Profile** |
 
 ---
 
@@ -101,10 +101,10 @@ Output:
 ### 2. One-Shot Instant Distillation (CLI):
 Evaluate any website and see the distilled Markdown + Action Map directly in your terminal:
 ```bash
-npx orbis --eval https://news.ycombinator.com
+npx orbis --eval https://example.com
 ```
 
-### 3. Fetch as Markdown (Lightpanda Parity):
+### 3. Fetch as Distilled Markdown:
 ```bash
 npx orbis fetch https://example.com --dump markdown
 ```
@@ -121,11 +121,12 @@ Orbis functions as a native **Model Context Protocol (MCP)** server over stdio f
   "mcpServers": {
     "orbis": {
       "command": "npx",
-      "args": ["-y", "memora-browser", "--mcp"]
+      "args": ["-y", "memora-orbis", "--mcp"]
     }
   }
 }
 ```
+> *Tip: You can also use `memora-browser` or `orbis` in place of `memora-orbis`.*
 
 ### Exposed MCP Tools:
 * `memora_browse` / `orbis_browse`: Loads any technical documentation or URL and returns clean Markdown + indexed Action Map (`[@1]`, `[@2]`) with 95% token savings.

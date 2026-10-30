@@ -8,6 +8,7 @@
   "types": "dist/index.d.ts",
   "bin": {
     "orbis": "./dist/cli/index.js",
+    "memora-orbis": "./dist/cli/index.js",
     "memora-browser": "./dist/cli/index.js"
   },
   "scripts": {
