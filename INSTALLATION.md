@@ -14,7 +14,7 @@ Choose how you want to use Memora:
 | :--- | :--- | :--- |
 | **Cursor, Claude Desktop, Antigravity** | [1. AI Coding Assistants (MCP)](#1-ai-coding-assistants-mcp-setup) | No install needed (`npx`) |
 | **Python Agents (Browser-Use, LangChain, CrewAI)** | [2. Python AI Developers](#2-python-ai-developers-pip) | `pip install memora-browser` |
-| **TypeScript / Node.js Agents** | [3. TypeScript / Node.js Developers](#3-typescript--nodejs-developers) | `npm install memora-browser` |
+| **TypeScript / Node.js Agents** | [3. TypeScript / Node.js Developers](#3-typescript--nodejs-developers) | `npm install memora-orbis` |
 | **Playwright / Puppeteer** | [4. Playwright & Puppeteer Users](#4-playwright--puppeteer-drop-in) | Drop-in CDP (`ws://...`) |
 | **Selenium / W3C WebDriver** | [5. Selenium (W3C WebDriver)](#5-selenium-w3c-webdriver-classic) | No chromedriver needed |
 | **Docker / Cloud / Kubernetes** | [6. Docker & Cloud Deployment](#6-docker--cloud-deployments) | Official Docker image |
@@ -128,15 +128,15 @@ agent = Agent(
 
 ### Step 1: Install Package
 ```bash
-npm install memora-browser
+npm install memora-orbis
 ```
 
 ### Step 2: High-Level 1-Line Agent Controller
 ```typescript
-import { MemoraAgent } from 'memora-browser';
+import { OrbisAgent } from 'memora-orbis';
 
 // 1-line launcher with anti-detect stealth and built-in CDP server
-const agent = await MemoraAgent.launch({ stealth: true, cdpPort: 9222 });
+const agent = await OrbisAgent.launch({ stealth: true, cdpPort: 9222 });
 
 // Navigate & get compact LLM representation (<1000 tokens)
 const snapshot = await agent.goto('https://app.example.com/login');
@@ -160,10 +160,10 @@ await agent.close();
 
 ### Integration with Stagehand
 ```typescript
-import { MemoraAgent, getStagehandConfig } from 'memora-browser';
+import { OrbisAgent, getStagehandConfig } from 'memora-orbis';
 import { Stagehand } from '@browserbasehq/stagehand';
 
-const agent = await MemoraAgent.launch({ cdpPort: 9222 });
+const agent = await OrbisAgent.launch({ cdpPort: 9222 });
 const stagehand = new Stagehand(getStagehandConfig(agent));
 await stagehand.init();
 
@@ -172,11 +172,11 @@ await stagehand.page.goto('https://example.com');
 
 ### Integration with LangChain
 ```typescript
-import { MemoraAgent, createMemoraLangChainTools } from 'memora-browser';
+import { OrbisAgent, createOrbisLangChainTools } from 'memora-orbis';
 
-const agent = await MemoraAgent.launch();
-const tools = createMemoraLangChainTools(agent);
-// Exported tools: memora_navigate, memora_snapshot, memora_act, memora_diff, memora_fill_form
+const agent = await OrbisAgent.launch();
+const tools = createOrbisLangChainTools(agent);
+// Exported tools: orbis_navigate, orbis_snapshot, orbis_act, orbis_diff, orbis_fill_form
 ```
 
 ---

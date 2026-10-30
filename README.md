@@ -143,7 +143,7 @@ Orbis functions as a native **Model Context Protocol (MCP)** server over stdio f
 Orbis provides a high-level agent controller designed for LLM orchestration:
 
 ```typescript
-import { OrbisAgent } from 'memora-browser';
+import { OrbisAgent } from 'memora-orbis';
 
 // 1. Launch 1-line browser instance with anti-detect stealth
 const agent = await OrbisAgent.launch({ stealth: true, cdpPort: 9222 });
