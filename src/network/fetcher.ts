@@ -17,6 +17,8 @@ export interface RequestOptions {
   body?: string;
   headers?: Record<string, string>;
   timeoutMs?: number;
+  // Subresource request (script, ...): fetch-style headers instead of navigation headers
+  resource?: boolean;
 }
 
 const MAX_REDIRECTS = 20;
@@ -114,7 +116,7 @@ export class NetworkFetcher {
       for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
         // --obey-robots: every hop, redirect targets included, is checked against its origin's robots.txt
         await this.pool.robots?.check(currentUrl);
-        const headers = this.baseHeaders(true);
+        const headers = this.baseHeaders(!opts.resource);
         Object.assign(headers, opts.headers || {});
         if (body === undefined) delete headers['Content-Type'];
 
@@ -157,7 +159,7 @@ export class NetworkFetcher {
       throw new Error(`Too many redirects (> ${MAX_REDIRECTS}) starting at ${url}`);
     } catch (err: any) {
       if (err?.name === 'AbortError') {
-        throw new Error(`Navigation timeout after ${timeoutMs}ms: ${url}`);
+        throw new Error(`${opts.resource ? 'Request' : 'Navigation'} timeout after ${timeoutMs}ms: ${url}`);
       }
       // undici wraps socket/proxy failures as "fetch failed" with the real reason nested in cause
       if (err?.cause) {
@@ -171,6 +173,15 @@ export class NetworkFetcher {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  // Subresource fetch for page-loaded resources such as <script src>: same proxy, cookies,
+  // headers and --obey-robots checks (on every redirect hop) as request()
+  public async fetchResource(url: string, opts: { timeoutMs?: number; referer?: string; accept?: string } = {}): Promise<FetchResponse> {
+    const headers: Record<string, string> = {};
+    if (opts.accept) headers['Accept'] = opts.accept;
+    if (opts.referer && /^https?:/.test(opts.referer)) headers['Referer'] = opts.referer;
+    return this.request(url, { method: 'GET', headers, timeoutMs: opts.timeoutMs, resource: true });
   }
 
   // fetch() exposed to page scripts: same proxy, cookies and headers as navigations

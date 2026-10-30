@@ -203,7 +203,16 @@ export class MemoraCommentNode extends MemoraNode {
 export class MemoraElement extends MemoraNode {
   public nodeType: NodeType = 1;
   public tagName: string;
-  public attributes: Map<string, string> = new Map();
+  // Attribute map, allocated on first write/access (many elements have no attributes)
+  private _attrs?: Map<string, string>;
+
+  public get attributes(): Map<string, string> {
+    return (this._attrs ??= new Map());
+  }
+
+  public set attributes(map: Map<string, string>) {
+    this._attrs = map;
+  }
   // Created on first addEventListener (most elements never get a listener)
   private eventListeners?: Map<string, Set<EventCallback>>;
   private _layoutBox?: BoundingRect;
@@ -251,7 +260,7 @@ export class MemoraElement extends MemoraNode {
   }
 
   public getAttributeNames(): string[] {
-    return Array.from(this.attributes.keys());
+    return this._attrs ? Array.from(this._attrs.keys()) : [];
   }
 
   public matches(selector: string): boolean {
@@ -313,19 +322,19 @@ export class MemoraElement extends MemoraNode {
   }
 
   public getAttribute(name: string): string | null {
-    return this.attributes.get(name.toLowerCase()) ?? null;
+    return this._attrs?.get(name.toLowerCase()) ?? null;
   }
 
   public setAttribute(name: string, value: string): void {
-    this.attributes.set(name.toLowerCase(), String(value));
+    (this._attrs ??= new Map()).set(name.toLowerCase(), String(value));
   }
 
   public hasAttribute(name: string): boolean {
-    return this.attributes.has(name.toLowerCase());
+    return this._attrs?.has(name.toLowerCase()) ?? false;
   }
 
   public removeAttribute(name: string): void {
-    this.attributes.delete(name.toLowerCase());
+    this._attrs?.delete(name.toLowerCase());
   }
 
   public get textContent(): string {
@@ -337,10 +346,21 @@ export class MemoraElement extends MemoraNode {
   }
 
   public set textContent(val: string) {
+    for (const child of this.childNodes) child.parentNode = null;
     this.childNodes = [];
-    if (val) {
-      this.appendChild(new MemoraTextNode(val));
+    if (val !== null && val !== undefined && val !== '') {
+      this.appendChild(new MemoraTextNode(String(val)));
     }
+  }
+
+  // ParentNode.append / prepend: nodes or strings (strings become text nodes)
+  public append(...nodes: Array<MemoraNode | string>): void {
+    for (const n of nodes) this.appendChild(typeof n === 'string' ? new MemoraTextNode(n) : n);
+  }
+
+  public prepend(...nodes: Array<MemoraNode | string>): void {
+    const first = this.childNodes[0] ?? null;
+    for (const n of nodes) this.insertBefore(typeof n === 'string' ? new MemoraTextNode(n) : n, first);
   }
 
   public get innerHTML(): string {
@@ -359,7 +379,7 @@ export class MemoraElement extends MemoraNode {
   }
 
   public get outerHTML(): string {
-    const attrs = Array.from(this.attributes.entries())
+    const attrs = Array.from(this._attrs?.entries() ?? [])
       .map(([k, v]) => ` ${k}="${escapeAttr(v)}"`)
       .join('');
     
@@ -477,6 +497,8 @@ export class MemoraDocument extends MemoraElement {
   public nodeType: NodeType = 9;
   public readonly readyState = 'complete';
   public inlineHandlerCompiler?: (code: string) => Function;
+  // The <script> element whose code is currently running (null outside page script execution)
+  public currentScript: MemoraElement | null = null;
 
   constructor() {
     super('#document');
@@ -519,7 +541,17 @@ export class MemoraDocument extends MemoraElement {
   }
 
   public getElementById(id: string): MemoraElement | null {
-    return this.querySelector(`#${id}`);
+    // Tree walk instead of a "#id" selector: ids may contain characters that are not valid CSS
+    const wanted = String(id);
+    if (!wanted) return null;
+    const stack: MemoraNode[] = [this];
+    while (stack.length) {
+      const node = stack.pop()!;
+      if (node !== this && node.nodeType === 1 && (node as MemoraElement).getAttribute('id') === wanted) return node as MemoraElement;
+      const kids = node.childNodes;
+      for (let i = kids.length - 1; i >= 0; i--) stack.push(kids[i]);
+    }
+    return null;
   }
 
   public getElementsByTagName(tagName: string): MemoraElement[] {

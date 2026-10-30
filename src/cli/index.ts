@@ -80,7 +80,7 @@ async function runServer(options: any): Promise<void> {
   // MCP stdio mode for AI Coding Assistants (Cursor, Claude Desktop, Antigravity, Windsurf)
   if (options.mcp) {
     const { MCPServer } = await import('../mcp/server.js');
-    const mcp = new MCPServer(network);
+    const mcp = new MCPServer(network, options.engine || 'auto');
     mcp.start();
     return;
   }
@@ -194,6 +194,7 @@ function addServerOptions(cmd: Command): Command {
     .option('-p, --port <number>', 'CDP / WebDriver / HTTP port', '9222')
     .option('-h, --host <string>', 'Host address', '127.0.0.1')
     .option('--protocol <protocol>', 'Automation protocol to serve: cdp (Playwright/Puppeteer) or webdriver (Selenium)', 'cdp')
+    .option('--engine <engine>', 'Engine backend: native (ultra-fast zero-graphics), chrome (system Chromium), or auto', 'auto')
     .option('--max-sessions <number>', 'Maximum concurrent WebDriver sessions', '16')
     .option('--no-stealth', 'Disable anti-bot stealth emulation'));
 }

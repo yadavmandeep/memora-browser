@@ -2,9 +2,11 @@ import fs from 'node:fs';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core';
 import { parseHTML } from '../dom/parser.js';
 import { extractSemanticSnapshot } from '../distiller/semantic-tree.js';
-import { convertToMarkdown } from '../distiller/markdown.js';
+import { convertToMarkdown, MarkdownOptions } from '../distiller/markdown.js';
 import { extractStructuredData, StructuredPageData } from '../distiller/structured-data.js';
-import { SemanticPageSnapshot, NetworkOptions } from '../types/index.js';
+import { computePageDiff } from '../distiller/diff.js';
+import { saveSessionToFile, loadSessionFromFile, validateSessionData } from './session.js';
+import { SemanticPageSnapshot, NetworkOptions, SnapshotOptions, PageDiff, FormFillOptions, FormFillResult, SessionData } from '../types/index.js';
 import { RobotsStore } from '../network/robots.js';
 import { toPlaywrightProxy } from '../network/proxy.js';
 
@@ -35,6 +37,7 @@ export class ChromeEngine {
   private page: Page | null = null;
   private logs: Array<{ type: string; text: string; timestamp: number }> = [];
   private actionSelectorMap: Map<string, string> = new Map();
+  private lastSnapshot: SemanticPageSnapshot | null = null;
   private chromePath: string;
   private network: NetworkOptions;
 
@@ -130,27 +133,202 @@ export class ChromeEngine {
     return { status, url: page.url() };
   }
 
-  public async getSemanticSnapshot(): Promise<SemanticPageSnapshot> {
+  public async getSemanticSnapshot(options: SnapshotOptions = {}): Promise<SemanticPageSnapshot> {
     const page = await this.ensurePage();
     const html = await page.content();
     const url = page.url();
     const doc = parseHTML(html);
-    const snapshot = extractSemanticSnapshot(doc, url);
+    const snapshot = extractSemanticSnapshot(doc, url, options);
 
     // Cache actionId -> selector mapping for memora_act
     this.actionSelectorMap.clear();
     for (const act of snapshot.actions) {
       this.actionSelectorMap.set(act.actionId, act.selector);
     }
+    this.lastSnapshot = snapshot;
 
     return snapshot;
   }
 
-  public async getMarkdown(): Promise<string> {
+  public async getMarkdown(options: MarkdownOptions = {}): Promise<string> {
     const page = await this.ensurePage();
     const html = await page.content();
     const doc = parseHTML(html);
-    return convertToMarkdown(doc);
+    return convertToMarkdown(doc, options);
+  }
+
+  public async diff(previous?: SemanticPageSnapshot, options?: SnapshotOptions): Promise<PageDiff> {
+    const prev = previous || this.lastSnapshot;
+    const current = await this.getSemanticSnapshot(options);
+    return computePageDiff(prev, current);
+  }
+
+  public async fillForm(options: FormFillOptions): Promise<FormFillResult> {
+    if (options.steps && options.steps.length > 0) {
+      const allFilled: string[] = [];
+      const allSkipped: string[] = [];
+      let anySubmitted = false;
+      let lastUrl = '';
+      let lastTitle = '';
+
+      for (const step of options.steps) {
+        const stepRes = await this.fillForm(step);
+        allFilled.push(...stepRes.filled);
+        allSkipped.push(...stepRes.skipped);
+        if (stepRes.submitted) anySubmitted = true;
+        lastUrl = stepRes.url;
+        lastTitle = stepRes.title;
+        await new Promise(r => setTimeout(r, 50));
+      }
+
+      return {
+        success: true,
+        filled: allFilled,
+        skipped: allSkipped,
+        fieldsFilled: allFilled.length,
+        submitted: anySubmitted,
+        url: lastUrl,
+        title: lastTitle
+      };
+    }
+
+    const page = await this.ensurePage();
+    const filled: string[] = [];
+    const skipped: string[] = [];
+
+    for (const [target, val] of Object.entries(options.fields || {})) {
+      let selector = target;
+      if (target.startsWith('@')) {
+        const mapped = this.actionSelectorMap.get(target);
+        if (!mapped) {
+          skipped.push(target);
+          continue;
+        }
+        selector = mapped;
+      }
+
+      const el = await page.$(selector).catch(() => null);
+      if (!el) {
+        skipped.push(target);
+        continue;
+      }
+
+      const tag = await page.$eval(selector, e => e.tagName.toLowerCase()).catch(() => null);
+      const inputType = await page.$eval(selector, e => (e.getAttribute('type') || '').toLowerCase()).catch(() => '');
+
+      if (tag === 'input' && (inputType === 'checkbox' || inputType === 'radio')) {
+        const shouldCheck = val === 'true' || val === '1' || val === 'yes' || val === 'checked';
+        await page.setChecked(selector, shouldCheck);
+      } else if (tag === 'select') {
+        await page.selectOption(selector, val);
+      } else {
+        await page.fill(selector, val);
+        await page.dispatchEvent(selector, 'input');
+        await page.dispatchEvent(selector, 'change');
+      }
+      filled.push(target);
+    }
+
+    let submitted = false;
+    const submitTarget = options.submitActionId ?? options.submit;
+    if (submitTarget !== undefined && submitTarget !== false) {
+      if (typeof submitTarget === 'string') {
+        let submitSelector = submitTarget;
+        if (submitTarget.startsWith('@')) {
+          submitSelector = this.actionSelectorMap.get(submitTarget) || submitTarget;
+        }
+        const submitEl = await page.$(submitSelector).catch(() => null);
+        if (submitEl) {
+          await page.click(submitSelector);
+          submitted = true;
+          await page.waitForTimeout(200);
+        }
+      } else if (submitTarget === true && filled.length > 0) {
+        const formSubmitBtn = await page.$('button[type="submit"], input[type="submit"]').catch(() => null);
+        if (formSubmitBtn) {
+          await formSubmitBtn.click();
+          submitted = true;
+          await page.waitForTimeout(200);
+        }
+      }
+    }
+
+    return {
+      success: true,
+      filled,
+      skipped,
+      fieldsFilled: filled.length,
+      submitted,
+      url: page.url(),
+      title: await page.title()
+    };
+  }
+
+  public async dumpSession(): Promise<SessionData> {
+    const page = await this.ensurePage();
+    const context = page.context();
+    const cList = await context.cookies();
+    const cookies: Record<string, string> = {};
+    for (const c of cList) cookies[c.name] = c.value;
+
+    const storageDump = await page.evaluate(() => {
+      const loc: Record<string, string> = {};
+      const sess: Record<string, string> = {};
+      for (let i = 0; i < window.localStorage.length; i++) {
+        const k = window.localStorage.key(i);
+        if (k) loc[k] = window.localStorage.getItem(k) || '';
+      }
+      for (let i = 0; i < window.sessionStorage.length; i++) {
+        const k = window.sessionStorage.key(i);
+        if (k) sess[k] = window.sessionStorage.getItem(k) || '';
+      }
+      return { loc, sess };
+    });
+
+    return {
+      version: 1,
+      createdAt: new Date().toISOString(),
+      url: page.url(),
+      cookies,
+      localStorage: storageDump.loc,
+      sessionStorage: storageDump.sess,
+    };
+  }
+
+  public async restoreSession(session: SessionData): Promise<void> {
+    validateSessionData(session);
+    const page = await this.ensurePage();
+    const context = page.context();
+
+    if (Object.keys(session.cookies).length > 0) {
+      const u = new URL(page.url() !== 'about:blank' ? page.url() : session.url);
+      const cookieList = Object.entries(session.cookies).map(([name, value]) => ({
+        name,
+        value,
+        domain: u.hostname,
+        path: '/'
+      }));
+      await context.addCookies(cookieList);
+    }
+
+    await page.evaluate(({ loc, sess }) => {
+      for (const [k, v] of Object.entries(loc)) {
+        window.localStorage.setItem(k, v as string);
+      }
+      for (const [k, v] of Object.entries(sess)) {
+        window.sessionStorage.setItem(k, v as string);
+      }
+    }, { loc: session.localStorage, sess: session.sessionStorage });
+  }
+
+  public async saveSession(filePath: string): Promise<void> {
+    const data = await this.dumpSession();
+    saveSessionToFile(filePath, data);
+  }
+
+  public async loadSession(filePath: string): Promise<void> {
+    const data = loadSessionFromFile(filePath);
+    await this.restoreSession(data);
   }
 
   public async getStructuredData(): Promise<StructuredPageData> {
@@ -331,6 +509,44 @@ export class ChromeEngine {
     await newPage.goto(page.url(), { waitUntil: 'load' });
     this.page = newPage;
     return `Forked tab created! Switched active context to new tab at ${page.url()}`;
+  }
+
+  public async waitForSelector(
+    selector: string,
+    options: { timeoutMs?: number; state?: 'attached' | 'visible' } = {}
+  ): Promise<void> {
+    const page = await this.ensurePage();
+    let actualSelector = selector;
+    if (selector.startsWith('@')) {
+      const mapped = this.actionSelectorMap.get(selector);
+      if (mapped) actualSelector = mapped;
+    }
+    await page.waitForSelector(actualSelector, {
+      state: options.state || 'visible',
+      timeout: options.timeoutMs || 5000
+    });
+  }
+
+  public async waitForFunction(
+    fn: string | (() => boolean),
+    options: { timeoutMs?: number; pollIntervalMs?: number } = {}
+  ): Promise<boolean> {
+    const page = await this.ensurePage();
+    await page.waitForFunction(fn as any, null, {
+      timeout: options.timeoutMs || 5000,
+      polling: options.pollIntervalMs || 50
+    });
+    return true;
+  }
+
+  public async settleOnDOMMutation(options: { quietPeriodMs?: number; timeoutMs?: number } = {}): Promise<boolean> {
+    const page = await this.ensurePage();
+    try {
+      await page.waitForLoadState('networkidle', { timeout: options.timeoutMs || 2500 });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   public async close(): Promise<void> {

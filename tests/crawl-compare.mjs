@@ -79,15 +79,27 @@ async function waitForCdp(port) {
   throw new Error(`browser did not open CDP on port ${port}`);
 }
 
+let killAll = () => {};
+
 async function main() {
   if (FORK && !CMD.includes('{port}')) throw new Error('--fork needs {port} in --cmd');
   const ports = Array.from({ length: FORK ? POOL : 1 }, (_, i) => PORT + i);
+  // a leftover browser on the port would silently be benchmarked instead of ours
+  for (const port of ports) {
+    const busy = await fetch(`http://127.0.0.1:${port}/json/version`).then(() => true, () => false);
+    if (busy) throw new Error(`port ${port} already serves CDP — kill the leftover browser first`);
+  }
   // detached: own process group, so the whole tree can be killed with kill(-pid)
   const procs = ports.map((port) =>
     spawn(CMD.replaceAll('{port}', String(port)), { shell: true, stdio: 'ignore', detached: true }));
   const allPids = () => procs.flatMap((p) => tree(p.pid));
+  killAll = () => {
+    const pids = allPids(); // collect before killing, or children get reparented and leak
+    for (const p of procs) { try { process.kill(-p.pid, 'SIGKILL'); } catch { /* gone */ } }
+    for (const p of pids) { try { process.kill(p, 'SIGKILL'); } catch { /* gone */ } }
+  };
   let peakKb = 0;
-  const sampler = setInterval(() => {
+  const sampler = setInterval(process.env.NOSAMPLE ? () => {} : () => {
     const kb = allPids().reduce((s, p) => s + pssKb(p), 0);
     if (kb > peakKb) peakKb = kb;
   }, 100);
@@ -148,10 +160,8 @@ async function main() {
   const seconds = (performance.now() - t0) / 1000;
 
   clearInterval(sampler);
-  const pids = allPids(); // collect before killing, or children get reparented and leak
   await Promise.all(browsers.map((b) => b.close().catch(() => {})));
-  for (const p of procs) { try { process.kill(-p.pid, 'SIGKILL'); } catch { /* gone */ } }
-  for (const p of pids) { try { process.kill(p, 'SIGKILL'); } catch { /* gone */ } }
+  killAll();
 
   console.log(JSON.stringify({
     browser: BROWSER,
@@ -165,4 +175,4 @@ async function main() {
   process.exit(0);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => { console.error(e); killAll(); process.exit(1); });

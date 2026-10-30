@@ -1,12 +1,114 @@
 import { MemoraDocument, MemoraElement, MemoraNode, MemoraTextNode } from '../dom/node.js';
 
-export function convertToMarkdown(doc: MemoraDocument): string {
-  const body = doc.body || doc;
+export interface MarkdownOptions {
+  focusSelector?: string;
+  excludeSelectors?: string[];
+  filterHidden?: boolean;
+}
+
+const NON_RENDERABLE_TAGS = new Set([
+  'script', 'style', 'noscript', 'svg', 'canvas', 'template', 'head', 'meta', 'link'
+]);
+
+function isElementHidden(elem: MemoraElement): boolean {
+  if (elem.hasAttribute('hidden')) return true;
+  if (elem.getAttribute('aria-hidden') === 'true') return true;
+  const style = elem.getAttribute('style') || '';
+  if (/display\s*:\s*none/i.test(style) || /visibility\s*:\s*hidden/i.test(style)) return true;
+  return false;
+}
+
+function isElementExcluded(elem: MemoraElement, excludeSelectors?: string[]): boolean {
+  if (!excludeSelectors || excludeSelectors.length === 0) return false;
+  for (const sel of excludeSelectors) {
+    try {
+      if (elem.matches(sel)) return true;
+    } catch {
+      // Ignore invalid selector syntax
+    }
+  }
+  return false;
+}
+
+function renderInlineChildren(element: MemoraElement, options?: MarkdownOptions): string {
+  const parts: string[] = [];
+  for (const child of element.childNodes) {
+    parts.push(renderInline(child, options));
+  }
+  return parts.join('');
+}
+
+export function renderInline(node: MemoraNode, options?: MarkdownOptions): string {
+  if (node instanceof MemoraTextNode) {
+    return node.data.replace(/\s+/g, ' ');
+  }
+
+  if (node instanceof MemoraElement) {
+    const tag = node.tagName.toLowerCase();
+    if (NON_RENDERABLE_TAGS.has(tag)) return '';
+    if (options?.filterHidden !== false && isElementHidden(node)) return '';
+    if (isElementExcluded(node, options?.excludeSelectors)) return '';
+
+    switch (tag) {
+      case 'a': {
+        const href = node.getAttribute('href');
+        const text = renderInlineChildren(node, options).trim();
+        if (!text) return '';
+        return href ? `[${text}](${href})` : text;
+      }
+      case 'strong':
+      case 'b': {
+        const text = renderInlineChildren(node, options).trim();
+        return text ? `**${text}**` : '';
+      }
+      case 'em':
+      case 'i': {
+        const text = renderInlineChildren(node, options).trim();
+        return text ? `*${text}*` : '';
+      }
+      case 'code': {
+        const codeText = node.textContent.trim();
+        return codeText ? `\`${codeText}\`` : '';
+      }
+      case 'del':
+      case 's': {
+        const text = renderInlineChildren(node, options).trim();
+        return text ? `~~${text}~~` : '';
+      }
+      case 'img': {
+        const alt = node.getAttribute('alt') || 'image';
+        const src = node.getAttribute('src');
+        return src ? `![${alt}](${src})` : '';
+      }
+      case 'br':
+        return '\n';
+      default:
+        return renderInlineChildren(node, options);
+    }
+  }
+
+  return '';
+}
+
+export function convertToMarkdown(doc: MemoraDocument, options: MarkdownOptions = {}): string {
+  let rootNode: MemoraNode = doc.body || doc;
+
+  if (options.focusSelector) {
+    try {
+      const focused = doc.querySelector(options.focusSelector);
+      if (focused) {
+        rootNode = focused;
+      }
+    } catch {
+      // Fall back to default root if focusSelector is invalid
+    }
+  }
+
   const lines: string[] = [];
 
-  function processNode(node: MemoraNode, listLevel = 0) {
+  function processBlockNode(node: MemoraNode, listLevel = 0) {
     if (node instanceof MemoraTextNode) {
-      const text = node.data.replace(/\s+/g, ' ');
+      const text = node.data.replace(/\s+/g, ' ').trim();
       if (text) lines.push(text);
       return;
     }
@@ -14,64 +116,36 @@ export function convertToMarkdown(doc: MemoraDocument): string {
     if (node instanceof MemoraElement) {
       const tag = node.tagName.toLowerCase();
 
-      // Skip non-visible or script elements
-      if (['script', 'style', 'noscript', 'svg', 'canvas', 'template'].includes(tag)) {
-        return;
-      }
+      if (NON_RENDERABLE_TAGS.has(tag)) return;
+      if (options.filterHidden !== false && isElementHidden(node)) return;
+      if (isElementExcluded(node, options.excludeSelectors)) return;
 
       // Headings
-      if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(tag)) {
+      if (/^h[1-6]$/.test(tag)) {
         const level = parseInt(tag.charAt(1), 10);
         const hashes = '#'.repeat(level);
-        const headingText = node.textContent.trim().replace(/\s+/g, ' ');
+        const headingText = renderInlineChildren(node, options).trim();
         if (headingText) {
           lines.push(`\n${hashes} ${headingText}\n`);
         }
         return;
       }
 
-      // Paragraphs
+      // Paragraphs (preserves inline links, bold, code, etc.)
       if (tag === 'p') {
-        const pText = node.textContent.trim().replace(/\s+/g, ' ');
+        const pText = renderInlineChildren(node, options).trim();
         if (pText) {
           lines.push(`\n${pText}\n`);
         }
         return;
       }
 
-      // Lists
-      if (tag === 'ul' || tag === 'ol') {
-        lines.push('');
-        let itemIndex = 1;
-        for (const child of node.childNodes) {
-          if (child instanceof MemoraElement && child.tagName.toLowerCase() === 'li') {
-            const indent = '  '.repeat(listLevel);
-            const prefix = tag === 'ol' ? `${itemIndex++}. ` : '- ';
-            const itemText = child.textContent.trim().replace(/\s+/g, ' ');
-            if (itemText) {
-              lines.push(`${indent}${prefix}${itemText}`);
-            }
-          }
-        }
-        lines.push('');
-        return;
-      }
-
-      // Links
-      if (tag === 'a') {
-        const href = node.getAttribute('href');
-        const text = node.textContent.trim().replace(/\s+/g, ' ');
-        if (text && href) {
-          lines.push(`[${text}](${href})`);
-          return;
-        }
-      }
-
       // Blockquotes
       if (tag === 'blockquote') {
-        const bqText = node.textContent.trim().replace(/\s+/g, ' ');
+        const bqText = renderInlineChildren(node, options).trim();
         if (bqText) {
-          lines.push(`\n> ${bqText}\n`);
+          const quoted = bqText.split('\n').map(l => `> ${l}`).join('\n');
+          lines.push(`\n${quoted}\n`);
         }
         return;
       }
@@ -85,22 +159,46 @@ export function convertToMarkdown(doc: MemoraDocument): string {
         return;
       }
 
-      // Tables
-      if (tag === 'table') {
-        lines.push('\n' + renderMarkdownTable(node) + '\n');
+      // Horizontal rules
+      if (tag === 'hr') {
+        lines.push('\n---\n');
         return;
       }
 
-      // Generic recursion
+      // Lists
+      if (tag === 'ul' || tag === 'ol') {
+        lines.push('');
+        let itemIndex = 1;
+        for (const child of node.childNodes) {
+          if (child instanceof MemoraElement && child.tagName.toLowerCase() === 'li') {
+            const indent = '  '.repeat(listLevel);
+            const prefix = tag === 'ol' ? `${itemIndex++}. ` : '- ';
+            const itemText = renderInlineChildren(child, options).trim();
+            if (itemText) {
+              lines.push(`${indent}${prefix}${itemText}`);
+            }
+          }
+        }
+        lines.push('');
+        return;
+      }
+
+      // Tables
+      if (tag === 'table') {
+        lines.push('\n' + renderMarkdownTable(node, options) + '\n');
+        return;
+      }
+
+      // Generic container elements (div, section, article, main, etc.)
       for (const child of node.childNodes) {
-        processNode(child, listLevel);
+        processBlockNode(child, listLevel);
       }
     }
   }
 
-  processNode(body);
+  processBlockNode(rootNode);
 
-  // Normalize blank lines
+  // Normalize blank lines and spacing
   return lines
     .join(' ')
     .replace(/[ \t]+/g, ' ')
@@ -108,7 +206,7 @@ export function convertToMarkdown(doc: MemoraDocument): string {
     .trim();
 }
 
-function renderMarkdownTable(table: MemoraElement): string {
+function renderMarkdownTable(table: MemoraElement, options?: MarkdownOptions): string {
   const rows: string[][] = [];
   const trElements = table.querySelectorAll('tr');
 
@@ -116,7 +214,8 @@ function renderMarkdownTable(table: MemoraElement): string {
     const cells: string[] = [];
     for (const cell of tr.childNodes) {
       if (cell instanceof MemoraElement && (cell.tagName === 'td' || cell.tagName === 'th')) {
-        cells.push(cell.textContent.trim().replace(/\s+/g, ' ') || '-');
+        const cellText = renderInlineChildren(cell, options).trim() || '-';
+        cells.push(cellText);
       }
     }
     if (cells.length > 0) {

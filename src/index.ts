@@ -11,3 +11,8 @@ export { convertToMarkdown } from './distiller/markdown.js';
 export { V8Sandbox } from './runtime/v8-sandbox.js';
 export { NetworkFetcher } from './network/fetcher.js';
 export { MCPServer } from './mcp/server.js';
+export { computePageDiff } from './distiller/diff.js';
+export { saveSessionToFile, loadSessionFromFile, validateSessionData } from './engine/session.js';
+export { ChromeEngine } from './engine/chrome-engine.js';
+export { NativeEngineAdapter } from './engine/native-adapter.js';
+export * from './adapters/index.js';

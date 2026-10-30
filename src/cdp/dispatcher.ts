@@ -763,13 +763,54 @@ export class CDPDispatcher {
       case 'LP':
       case 'Memora': {
         if (action === 'getSemanticSnapshot' || action === 'getSemanticTree' || action === 'snapshot') {
-          return page.getSemanticSnapshot();
+          return page.getSemanticSnapshot({
+            focusSelector: params.focusSelector,
+            excludeSelectors: params.excludeSelectors
+          });
         }
         if (action === 'getMarkdown') {
-          return { markdown: page.getMarkdown() };
+          return {
+            markdown: page.getMarkdown({
+              focusSelector: params.focusSelector,
+              excludeSelectors: params.excludeSelectors
+            })
+          };
         }
         if (action === 'getStructuredData') {
           return { structuredData: page.getStructuredData() };
+        }
+        if (action === 'diff') {
+          const diff = page.diff(params.previousSnapshot, {
+            focusSelector: params.focusSelector,
+            excludeSelectors: params.excludeSelectors
+          });
+          return { diff, currentSnapshot: page.lastSnapshot };
+        }
+        if (action === 'fillForm') {
+          const res = await page.fillForm({
+            fields: params.fields,
+            submit: params.submit ?? params.submitActionId ?? true,
+            steps: params.steps
+          });
+          return { ...res, snapshot: page.getSemanticSnapshot() };
+        }
+        if (action === 'saveSession') {
+          if (params.filePath) {
+            page.saveSession(params.filePath);
+            return { success: true, filePath: params.filePath };
+          }
+          return { success: true, session: page.dumpSession() };
+        }
+        if (action === 'loadSession') {
+          if (params.filePath) {
+            page.loadSession(params.filePath);
+            return { success: true, url: page.url };
+          }
+          if (params.session) {
+            page.restoreSession(params.session);
+            return { success: true, url: page.url };
+          }
+          throw new Error('Memora.loadSession requires filePath or session parameter');
         }
         if (action === 'act') {
           const { actionId, type, text } = params;

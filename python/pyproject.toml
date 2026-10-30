@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "memora-browser"
+version = "1.0.0"
+description = "Official Python SDK for Memora Agentic Browser (Browser-Use, LangChain, CrewAI)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "Memora Team" }
+]
+keywords = ["headless-browser", "cdp", "ai-agents", "browser-use", "langchain", "web-automation"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Topic :: Internet :: WWW/HTTP :: Browsers",
+]
+
+[project.urls]
+Homepage = "https://github.com/memora/memora-browser"
+

@@ -18,7 +18,9 @@
     "test:robots": "tsx tests/test-robots.ts",
     "test:proxy": "tsx tests/test-proxy.ts",
     "test:selenium": "tsx tests/test-selenium.ts",
-    "test:all": "npm run benchmark && npm run test:proxy && npm run test:selenium && npm run test:robots"
+    "test:scripts": "tsx tests/test-scripts.ts",
+    "test:agents": "tsx tests/test-agent-features.ts",
+    "test:all": "npm run benchmark && npm run test:proxy && npm run test:selenium && npm run test:robots && npm run test:scripts && npm run test:agents"
   },
   "keywords": [
     "headless-browser",
@@ -38,6 +40,7 @@
   "dependencies": {
     "commander": "^13.1.0",
     "css-select": "^5.1.0",
+    "esbuild": "^0.25.0",
     "parse5": "^7.2.1",
     "undici": "^7.30.1",
     "ws": "^8.18.1"
@@ -53,6 +56,7 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "python"
   ]
 }

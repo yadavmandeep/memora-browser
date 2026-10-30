@@ -875,7 +875,7 @@ export class WebDriverServer {
         s.prune();
         return null;
       }
-      await this.navigate(s, () => page.goto(target, { timeoutMs: s.timeouts.pageLoad }));
+      await this.navigate(s, () => page.goto(target, { timeoutMs: s.timeouts.pageLoad, settleTimeoutMs: 0 }));
       return null;
     });
     this.route('GET', '/url', s => s.page().url);

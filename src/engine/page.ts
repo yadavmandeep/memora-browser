@@ -1,12 +1,25 @@
 import crypto from 'node:crypto';
 import { MemoraDocument, MemoraElement, MemoraNode } from '../dom/node.js';
 import { parseHTML } from '../dom/parser.js';
-import { V8Sandbox, collectRunnableScripts } from '../runtime/v8-sandbox.js';
+import { V8Sandbox, PageScript, collectRunnableScripts, scriptKind } from '../runtime/v8-sandbox.js';
+import { bundleModuleScript, parseImportMap } from '../runtime/esm-bundler.js';
 import { NetworkFetcher } from '../network/fetcher.js';
 import { extractSemanticSnapshot } from '../distiller/semantic-tree.js';
 import { convertToMarkdown } from '../distiller/markdown.js';
 import { extractStructuredData, StructuredPageData } from '../distiller/structured-data.js';
-import { SemanticPageSnapshot, PageState, NetworkOptions } from '../types/index.js';
+import {
+  SemanticPageSnapshot,
+  PageState,
+  NetworkOptions,
+  SnapshotOptions,
+  PageDiff,
+  FormFillOptions,
+  FormFillResult,
+  SessionData
+} from '../types/index.js';
+import { MarkdownOptions } from '../distiller/markdown.js';
+import { computePageDiff } from '../distiller/diff.js';
+import { saveSessionToFile, loadSessionFromFile, validateSessionData } from './session.js';
 import { DispatcherPool } from '../network/proxy.js';
 
 export interface NavigateOptions {
@@ -16,9 +29,13 @@ export interface NavigateOptions {
   headers?: Record<string, string>;
   // 'push' adds a history entry, 'replace' overwrites the current one, 'none' leaves history alone
   history?: 'push' | 'replace' | 'none';
+  // After scripts ran, wait up to this long for the page's async work (fetch/XHR, promise
+  // chains, short timers) to finish before goto() resolves. 0 disables. Default: page.settleTimeoutMs
+  settleTimeoutMs?: number;
 }
 
 const MAX_SCRIPT_REDIRECTS = 5;
+const DEFAULT_SETTLE_TIMEOUT_MS = 5000;
 
 export class MemoraPage {
   public readonly id: string;
@@ -33,6 +50,9 @@ export class MemoraPage {
   private pool?: DispatcherPool;
   private history: string[] = [];
   private historyIndex: number = -1;
+  // Default upper bound for the post-load settle phase of goto() (see NavigateOptions)
+  public settleTimeoutMs: number = DEFAULT_SETTLE_TIMEOUT_MS;
+  public lastSnapshot: SemanticPageSnapshot | null = null;
 
   constructor(stealth: boolean = true, network: NetworkOptions = {}, pool?: DispatcherPool) {
     this.id = crypto.randomUUID();
@@ -54,6 +74,8 @@ export class MemoraPage {
   // Installs a new document with a fresh (lazy) JS context, like a browser navigation
   private adoptDocument(doc: MemoraDocument): MemoraDocument {
     this.document = doc;
+    // Unload the previous document's JS: its timers and in-flight requests must not keep running
+    this._sandbox?.dispose();
     this._sandbox = null;
     // Inline handlers (onclick="...") need the context; creating it replaces this compiler
     doc.inlineHandlerCompiler = (code: string) => {
@@ -64,11 +86,193 @@ export class MemoraPage {
     return doc;
   }
 
-  // Parses the HTML and runs its inline scripts; the JS context is only created if there are any
+  // Parses the HTML and runs its inline scripts synchronously (setContent / restoreState);
+  // the JS context is only created if there are any
   private loadDocument(html: string): void {
     const doc = this.adoptDocument(parseHTML(html));
     const scripts = collectRunnableScripts(doc);
     if (scripts.length) this.sandbox.executeScriptElements(scripts);
+  }
+
+  // Navigation load: parses the HTML, then runs every classic <script> like a browser parser
+  // does. External scripts are fetched in parallel (through this page's fetcher: proxy,
+  // cookies, --obey-robots) but executed in document order, interleaved with inline ones;
+  // defer scripts run after them and async scripts last. Module scripts are not supported
+  // (skipped with a console warning); data blocks (JSON, templates...) never execute.
+  // Script-less pages never create a JS context.
+  private async loadDocumentWithScripts(html: string, deadline: number): Promise<void> {
+    const doc = this.adoptDocument(parseHTML(html));
+    const elements = doc.querySelectorAll('script');
+    if (!elements.length) return;
+
+    type Entry = { element: MemoraElement; code?: string; src?: string; load?: Promise<string | null> };
+    const inOrder: Entry[] = [];
+    const deferred: Entry[] = [];
+    const asynced: Entry[] = [];
+    const warnings: string[] = [];
+    const baseUrl = this.baseUrlFor(doc);
+    const importMap = parseImportMap(doc, baseUrl);
+
+    for (const element of elements) {
+      const kind = scriptKind(element);
+      if (kind === 'data') continue;
+      if (kind === 'module') {
+        const isAsync = element.hasAttribute('async');
+        const srcAttr = element.getAttribute('src');
+        if (srcAttr === null) {
+          const code = element.textContent;
+          if (code && code.trim()) {
+            const entry: Entry = { element, src: baseUrl };
+            entry.load = bundleModuleScript({
+              entryCode: code,
+              entryUrl: baseUrl,
+              baseUrl,
+              fetcher: this.fetcher,
+              importMap,
+              timeoutMs: Math.max(1, deadline - Date.now())
+            }).catch(err => {
+              this.sandbox.log('error', [`Failed to bundle inline module: ${err?.message || err}`]);
+              return null;
+            });
+            if (isAsync) asynced.push(entry);
+            else deferred.push(entry);
+          }
+          continue;
+        }
+
+        let src: string;
+        try {
+          src = new URL(srcAttr.trim(), baseUrl).toString();
+        } catch {
+          warnings.push(`Module script with invalid src skipped: ${srcAttr}`);
+          continue;
+        }
+        if (!/^https?:/.test(src)) {
+          warnings.push(`Module script with unsupported URL scheme skipped: ${src}`);
+          continue;
+        }
+
+        const entry: Entry = { element, src };
+        entry.load = this.fetcher.fetchResource(src, {
+          timeoutMs: Math.max(1, deadline - Date.now()),
+          referer: this.url,
+          accept: '*/*'
+        }).then(async resp => {
+          if (resp.status >= 200 && resp.status < 300) {
+            return await bundleModuleScript({
+              entryCode: resp.body,
+              entryUrl: src,
+              baseUrl,
+              fetcher: this.fetcher,
+              importMap,
+              timeoutMs: Math.max(1, deadline - Date.now())
+            });
+          }
+          this.sandbox.log('error', [`Failed to load module script ${src}: HTTP ${resp.status}`]);
+          return null;
+        }, err => {
+          this.sandbox.log('error', [`Failed to load module script ${src}: ${err?.message || err}`]);
+          return null;
+        });
+
+        if (isAsync) asynced.push(entry);
+        else deferred.push(entry);
+        continue;
+        continue;
+      }
+      const srcAttr = element.getAttribute('src');
+      if (srcAttr === null) {
+        // async/defer have no effect on inline classic scripts
+        const code = element.textContent;
+        if (code && code.trim()) inOrder.push({ element, code });
+        continue;
+      }
+      let src: string;
+      try {
+        src = new URL(srcAttr.trim(), baseUrl).toString();
+      } catch {
+        warnings.push(`Script with invalid src skipped: ${srcAttr}`);
+        continue;
+      }
+      if (!/^https?:/.test(src)) {
+        warnings.push(`Script with unsupported URL scheme skipped: ${src}`);
+        continue;
+      }
+      const entry: Entry = { element, src };
+      if (element.hasAttribute('async')) asynced.push(entry);
+      else if (element.hasAttribute('defer')) deferred.push(entry);
+      else inOrder.push(entry);
+    }
+
+    const all = [...inOrder, ...deferred, ...asynced];
+    if (!all.length && !warnings.length) return;
+    const sandbox = this.sandbox;
+    for (const w of warnings) sandbox.log('warn', [w]);
+    if (!all.length) return;
+
+    // Start every download at once; a failure (network, HTTP error, robots.txt) only drops that script
+    for (const e of all) {
+      if (e.load) continue;
+      if (!e.src) continue;
+      const src = e.src;
+      e.load = this.fetcher.fetchResource(src, {
+        timeoutMs: Math.max(1, deadline - Date.now()),
+        referer: this.url,
+        accept: '*/*',
+      }).then(
+        resp => {
+          if (resp.status >= 200 && resp.status < 300) return resp.body;
+          sandbox.log('error', [`Failed to load script ${src}: HTTP ${resp.status}`]);
+          return null;
+        },
+        err => {
+          sandbox.log('error', [`Failed to load script ${src}: ${err?.message || err}`]);
+          return null;
+        },
+      );
+    }
+
+    // Execute in document order. Consecutive scripts whose source is available run in one
+    // batch (one vm watchdog); the batch is flushed before waiting for the next download.
+    let batch: PageScript[] = [];
+    const flush = () => {
+      if (batch.length && this.document === doc) sandbox.executeScriptElements(batch);
+      batch = [];
+    };
+    for (const e of all) {
+      if (e.code !== undefined) {
+        batch.push({ code: e.code, element: e.element });
+        continue;
+      }
+      flush();
+      const code = await e.load!;
+      if (this.document !== doc) return; // navigated away meanwhile
+      if (code !== null && code.trim()) batch.push({ code, element: e.element, filename: e.src });
+    }
+    flush();
+  }
+
+  // <base href> aware document base URL
+  private baseUrlFor(doc: MemoraDocument): string {
+    const base = doc.querySelector('base[href]')?.getAttribute('href');
+    if (base) {
+      try { return new URL(base, this.url).toString(); } catch { /* ignore invalid base */ }
+    }
+    return this.url;
+  }
+
+  // Waits until the current document has no pending async work: in-flight fetch() and
+  // their promise chains (body reads included), plus short one-shot timers (setInterval and
+  // long timeouts are ignored). Resolves true when idle, false when timeoutMs elapsed first.
+  // Pages that never created a JS context are idle immediately.
+  public async waitForIdle(timeoutMs: number = this.settleTimeoutMs): Promise<boolean> {
+    if (!this._sandbox) return true;
+    return this._sandbox.waitForIdle(timeoutMs);
+  }
+
+  // Releases the page's JS context (timers, in-flight requests)
+  public close(): void {
+    this._sandbox?.dispose();
   }
 
   private createSandbox(): V8Sandbox {
@@ -83,16 +287,26 @@ export class MemoraPage {
     let target = this.url !== 'about:blank' ? new URL(url, this.url).toString() : url;
     let request = { method: opts.method, body: opts.body, headers: opts.headers };
     let historyMode = opts.history || 'push';
+    const timeoutMs = opts.timeoutMs ?? 20000;
+    const settleMs = opts.settleTimeoutMs ?? this.settleTimeoutMs;
 
     for (let i = 0; i <= MAX_SCRIPT_REDIRECTS; i++) {
-      const resp = await this.fetcher.request(target, { ...request, timeoutMs: opts.timeoutMs ?? 20000 });
+      const deadline = Date.now() + timeoutMs;
+      const resp = await this.fetcher.request(target, { ...request, timeoutMs });
       this.url = resp.url;
       this.lastStatus = resp.status;
       this.recordHistory(this.url, historyMode);
 
-      // Parse HTML into high-speed DOM, then run its scripts (SPAs / client-side hydration)
-      // in a fresh V8 context
-      this.loadDocument(resp.body);
+      // Parse HTML into high-speed DOM, then run its scripts (inline + external; SPAs /
+      // client-side hydration) in a fresh V8 context
+      await this.loadDocumentWithScripts(resp.body, deadline);
+
+      // Settle: let the fetch()/promise/timer work the scripts started finish before "load",
+      // bounded by the settle timeout and never past the navigation timeout
+      if (this._sandbox && settleMs > 0) {
+        const budget = Math.min(settleMs, deadline - Date.now());
+        if (budget > 0) await this._sandbox.waitForIdle(budget);
+      }
 
       // Scripts that assign window.location trigger a follow-up navigation
       const pending = this.takePendingNavigation();
@@ -395,12 +609,202 @@ export class MemoraPage {
     });
   }
 
-  public getSemanticSnapshot(): SemanticPageSnapshot {
-    return extractSemanticSnapshot(this.document, this.url);
+  public getSemanticSnapshot(options: SnapshotOptions = {}): SemanticPageSnapshot {
+    const snap = extractSemanticSnapshot(this.document, this.url, options);
+    this.lastSnapshot = snap;
+    return snap;
   }
 
-  public getMarkdown(): string {
-    return convertToMarkdown(this.document);
+  public getMarkdown(options: MarkdownOptions = {}): string {
+    return convertToMarkdown(this.document, options);
+  }
+
+  public diff(previous?: SemanticPageSnapshot, options?: SnapshotOptions): PageDiff {
+    const prev = previous || this.lastSnapshot;
+    const current = this.getSemanticSnapshot(options);
+    return computePageDiff(prev, current);
+  }
+
+  public async fillForm(options: FormFillOptions): Promise<FormFillResult> {
+    // 1. Recursive sequence support (multi-step or chained interactions)
+    if (options.steps && options.steps.length > 0) {
+      const allFilled: string[] = [];
+      const allSkipped: string[] = [];
+      let anySubmitted = false;
+      let lastUrl = this.url;
+      let lastTitle = this.title();
+
+      for (const step of options.steps) {
+        const stepRes = await this.fillForm(step);
+        allFilled.push(...stepRes.filled);
+        allSkipped.push(...stepRes.skipped);
+        if (stepRes.submitted) anySubmitted = true;
+        lastUrl = stepRes.url;
+        lastTitle = stepRes.title;
+        // Natural micro-turn pause for DOM to settle after step interaction
+        await new Promise(r => setTimeout(r, 20));
+      }
+
+      return {
+        success: true,
+        filled: allFilled,
+        skipped: allSkipped,
+        fieldsFilled: allFilled.length,
+        submitted: anySubmitted,
+        url: lastUrl,
+        title: lastTitle
+      };
+    }
+
+    // 2. Autonomous, self-healing field population
+    const filled: string[] = [];
+    const skipped: string[] = [];
+    const fields = options.fields || {};
+
+    for (const [target, val] of Object.entries(fields)) {
+      const elem = this.resolveElement(target);
+      if (!elem) {
+        // Target not present on current screen -> gracefully record as skipped without crashing
+        skipped.push(target);
+        continue;
+      }
+
+      const type = (elem.getAttribute('type') || '').toLowerCase();
+      if (elem.tagName === 'input' && (type === 'checkbox' || type === 'radio')) {
+        const shouldCheck = val === 'true' || val === '1' || val === 'yes' || val === 'checked' || val === 'on';
+        this.setChecked(elem, shouldCheck);
+        elem.dispatchEvent({ type: 'input', target: elem, bubbles: true });
+        elem.dispatchEvent({ type: 'change', target: elem, bubbles: true });
+      } else if (elem.tagName === 'select') {
+        const option = elem.querySelector(`option[value="${val}"]`) ||
+          elem.querySelectorAll('option').find(o => o.textContent.trim() === val);
+        if (option) {
+          this.selectOption(option);
+        } else {
+          elem.value = val;
+          elem.dispatchEvent({ type: 'change', target: elem, bubbles: true });
+        }
+      } else if (elem.getAttribute('contenteditable') === 'true' || elem.getAttribute('contenteditable') === '') {
+        elem.textContent = val;
+        elem.dispatchEvent({ type: 'input', target: elem, bubbles: true });
+        elem.dispatchEvent({ type: 'change', target: elem, bubbles: true });
+      } else {
+        this.type(target, val);
+      }
+      filled.push(target);
+    }
+
+    // 3. Trigger submit / next action if specified
+    let submitted = false;
+    const submitTarget = options.submitActionId ?? options.submit;
+    if (submitTarget !== undefined && submitTarget !== false) {
+      if (typeof submitTarget === 'string') {
+        const submitElem = this.resolveElement(submitTarget);
+        if (submitElem) {
+          if (submitElem.tagName === 'form') {
+            await this.submitForm(submitElem);
+          } else {
+            await this.activate(submitElem);
+          }
+          submitted = true;
+        }
+      } else if (submitTarget === true && filled.length > 0) {
+        // Find form of first filled element or first form on page
+        const firstElem = this.resolveElement(filled[0]);
+        let form = firstElem ? closest(firstElem, e => e.tagName === 'form') : null;
+        if (!form) form = this.document.querySelector('form');
+        if (form) {
+          await this.submitForm(form);
+          submitted = true;
+        }
+      }
+    }
+
+    return {
+      success: true,
+      filled,
+      skipped,
+      fieldsFilled: filled.length,
+      submitted,
+      url: this.url,
+      title: this.title()
+    };
+  }
+
+  public dumpSession(): SessionData {
+    return {
+      version: 1,
+      createdAt: new Date().toISOString(),
+      url: this.url,
+      cookies: this.fetcher.dumpCookies(),
+      localStorage: this._sandbox ? this._sandbox.localStorage.dump() : {},
+      sessionStorage: this._sandbox ? this._sandbox.sessionStorage.dump() : {},
+    };
+  }
+
+  public restoreSession(session: SessionData): void {
+    validateSessionData(session);
+    this.fetcher.restoreCookies(session.cookies);
+    this.sandbox.localStorage.restore(session.localStorage);
+    this.sandbox.sessionStorage.restore(session.sessionStorage);
+  }
+
+  public saveSession(filePath: string): void {
+    saveSessionToFile(filePath, this.dumpSession());
+  }
+
+  public loadSession(filePath: string): void {
+    this.restoreSession(loadSessionFromFile(filePath));
+  }
+
+  public async waitForSelector(
+    selector: string,
+    options: { timeoutMs?: number; state?: 'attached' | 'visible' } = {}
+  ): Promise<MemoraElement> {
+    const timeoutMs = options.timeoutMs ?? 5000;
+    const state = options.state ?? 'visible';
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() < deadline) {
+      const el = this.resolveElement(selector);
+      if (el) {
+        if (state === 'attached') return el;
+        const isHidden = el.hasAttribute('hidden') ||
+          el.getAttribute('aria-hidden') === 'true' ||
+          /display\s*:\s*none/i.test(el.getAttribute('style') || '');
+        if (!isHidden) return el;
+      }
+      await new Promise(r => setTimeout(r, 50));
+    }
+    throw new Error(`Timeout waiting for selector "${selector}" to be ${state} (${timeoutMs}ms)`);
+  }
+
+  public async waitForFunction(
+    fn: string | (() => boolean),
+    options: { timeoutMs?: number; pollIntervalMs?: number } = {}
+  ): Promise<boolean> {
+    const timeoutMs = options.timeoutMs ?? 5000;
+    const interval = options.pollIntervalMs ?? 50;
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() < deadline) {
+      let result: any;
+      if (typeof fn === 'function') {
+        result = fn();
+      } else {
+        const evalRes = this.evaluate(fn);
+        result = evalRes && evalRes.success ? evalRes.result : false;
+      }
+      if (result) return true;
+      await new Promise(r => setTimeout(r, interval));
+    }
+    throw new Error(`Timeout waiting for condition (${timeoutMs}ms)`);
+  }
+
+  public async settleOnDOMMutation(options: { quietPeriodMs?: number; timeoutMs?: number } = {}): Promise<boolean> {
+    const quietMs = options.quietPeriodMs ?? 200;
+    const timeoutMs = options.timeoutMs ?? 5000;
+    return this.waitForIdle(Math.min(quietMs, timeoutMs));
   }
 
   public getStructuredData(): StructuredPageData {

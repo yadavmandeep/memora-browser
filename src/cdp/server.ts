@@ -4,6 +4,22 @@ import { MemoraBrowser } from '../engine/browser.js';
 import { CDPDispatcher } from './dispatcher.js';
 import { CDPRequest, CDPResponse, CDPEvent } from '../types/index.js';
 
+function readJsonBody(req: http.IncomingMessage): Promise<any> {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      if (!body.trim()) return resolve({});
+      try {
+        resolve(JSON.parse(body));
+      } catch (err: any) {
+        reject(new Error(`Invalid JSON body: ${err.message}`));
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
 export class CDPServer {
   private browser: MemoraBrowser;
   private httpServer: http.Server;
@@ -108,12 +124,180 @@ export class CDPServer {
         res.end(JSON.stringify({ error: 'Page not found' }));
         return;
       }
+      const focusSelector = url.searchParams.get('focus') || url.searchParams.get('focusSelector') || undefined;
+      const excludeRaw = url.searchParams.get('exclude') || url.searchParams.get('excludeSelectors');
+      const excludeSelectors = excludeRaw ? excludeRaw.split(',').map(s => s.trim()).filter(Boolean) : undefined;
+      const format = url.searchParams.get('format');
+
+      if (format === 'markdown') {
+        res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8' });
+        res.end(page.getMarkdown({ focusSelector, excludeSelectors }));
+        return;
+      }
+
       res.writeHead(200);
-      res.end(JSON.stringify(page.getSemanticSnapshot(), null, 2));
+      res.end(JSON.stringify(page.getSemanticSnapshot({ focusSelector, excludeSelectors }), null, 2));
       return;
     }
 
-    // 6. Agentic Endpoint: /memora/goto?url=...
+    // 6. Agentic Endpoint: /memora/diff (State comparison)
+    if (pathname === '/memora/diff') {
+      const targetId = url.searchParams.get('id');
+      const page = targetId ? this.browser.getPage(targetId) : this.browser.defaultPage;
+      if (!page) {
+        res.writeHead(404);
+        res.end(JSON.stringify({ error: 'Page not found' }));
+        return;
+      }
+
+      if (req.method === 'POST') {
+        readJsonBody(req).then(body => {
+          const diff = page.diff(body.previousSnapshot, {
+            focusSelector: body.focusSelector,
+            excludeSelectors: body.excludeSelectors
+          });
+          res.writeHead(200);
+          res.end(JSON.stringify({ diff, currentSnapshot: page.lastSnapshot }, null, 2));
+        }).catch(err => {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: err.message }));
+        });
+      } else {
+        const focusSelector = url.searchParams.get('focus') || url.searchParams.get('focusSelector') || undefined;
+        const excludeRaw = url.searchParams.get('exclude') || url.searchParams.get('excludeSelectors');
+        const excludeSelectors = excludeRaw ? excludeRaw.split(',').map(s => s.trim()).filter(Boolean) : undefined;
+        const diff = page.diff(undefined, { focusSelector, excludeSelectors });
+        res.writeHead(200);
+        res.end(JSON.stringify({ diff, currentSnapshot: page.lastSnapshot }, null, 2));
+      }
+      return;
+    }
+
+    // 7. Agentic Endpoint: /memora/fill-form (Atomic multi-field form population)
+    if (pathname === '/memora/fill-form' && req.method === 'POST') {
+      readJsonBody(req).then(async body => {
+        const targetId = body.id || url.searchParams.get('id');
+        const page = targetId ? this.browser.getPage(targetId) : this.browser.defaultPage;
+        if (!page) {
+          res.writeHead(404);
+          res.end(JSON.stringify({ error: 'Page not found' }));
+          return;
+        }
+        if (!body.fields || typeof body.fields !== 'object') {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: 'Missing or invalid "fields" object' }));
+          return;
+        }
+        try {
+          const fillResult = await page.fillForm({
+            fields: body.fields,
+            submit: body.submit ?? body.submitActionId ?? true,
+            steps: body.steps
+          });
+          res.writeHead(200);
+          res.end(JSON.stringify({ ...fillResult, snapshot: page.getSemanticSnapshot() }, null, 2));
+        } catch (err: any) {
+          res.writeHead(500);
+          res.end(JSON.stringify({ error: err.message || String(err) }));
+        }
+      }).catch(err => {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: err.message }));
+      });
+      return;
+    }
+
+    // 8. Agentic Endpoint: /memora/act (Direct action by @actionId or selector)
+    if (pathname === '/memora/act' && req.method === 'POST') {
+      readJsonBody(req).then(body => {
+        const targetId = body.id || url.searchParams.get('id');
+        const page = targetId ? this.browser.getPage(targetId) : this.browser.defaultPage;
+        if (!page) {
+          res.writeHead(404);
+          res.end(JSON.stringify({ error: 'Page not found' }));
+          return;
+        }
+        const actionId = body.actionId || body.target;
+        if (!actionId) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: 'Missing actionId or target' }));
+          return;
+        }
+        let success = false;
+        if (body.type === 'type' && body.text !== undefined) {
+          success = page.type(actionId, body.text);
+        } else {
+          success = page.click(actionId);
+        }
+        res.writeHead(200);
+        res.end(JSON.stringify({ success, snapshot: page.getSemanticSnapshot() }, null, 2));
+      }).catch(err => {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: err.message }));
+      });
+      return;
+    }
+
+    // 9. Agentic Endpoint: /memora/session (Save / load / export session)
+    if (pathname === '/memora/session') {
+      const targetId = url.searchParams.get('id');
+      const page = targetId ? this.browser.getPage(targetId) : this.browser.defaultPage;
+      if (!page) {
+        res.writeHead(404);
+        res.end(JSON.stringify({ error: 'Page not found' }));
+        return;
+      }
+
+      if (req.method === 'GET') {
+        res.writeHead(200);
+        res.end(JSON.stringify(page.dumpSession(), null, 2));
+      } else if (req.method === 'POST') {
+        readJsonBody(req).then(body => {
+          if (body.filePath) {
+            page.loadSession(body.filePath);
+            res.writeHead(200);
+            res.end(JSON.stringify({ success: true, url: page.url }));
+          } else if (body.session) {
+            page.restoreSession(body.session);
+            res.writeHead(200);
+            res.end(JSON.stringify({ success: true, url: page.url }));
+          } else {
+            res.writeHead(400);
+            res.end(JSON.stringify({ error: 'Expected "filePath" or "session" in request body' }));
+          }
+        }).catch(err => {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: err.message }));
+        });
+      }
+      return;
+    }
+
+    if (pathname === '/memora/session/save' && req.method === 'POST') {
+      readJsonBody(req).then(body => {
+        const targetId = body.id || url.searchParams.get('id');
+        const page = targetId ? this.browser.getPage(targetId) : this.browser.defaultPage;
+        if (!page) {
+          res.writeHead(404);
+          res.end(JSON.stringify({ error: 'Page not found' }));
+          return;
+        }
+        if (!body.filePath) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: 'Missing "filePath"' }));
+          return;
+        }
+        page.saveSession(body.filePath);
+        res.writeHead(200);
+        res.end(JSON.stringify({ success: true, filePath: body.filePath }));
+      }).catch(err => {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: err.message }));
+      });
+      return;
+    }
+
+    // 10. Agentic Endpoint: /memora/goto?url=...
     if (pathname === '/memora/goto') {
       const targetUrl = url.searchParams.get('url');
       if (!targetUrl) {
@@ -234,5 +418,9 @@ export class CDPServer {
         });
       });
     });
+  }
+
+  public close(): Promise<void> {
+    return this.stop();
   }
 }

@@ -83,11 +83,25 @@ Add this to your `mcp.json` (or `claude_desktop_config.json`):
 ```
 
 ### Provided MCP Tools for AI Coding Assistants:
-* `memora_browse`: Loads any technical documentation or web page, executes scripts, and returns clean Markdown + Action Map saving 95% prompt tokens.
-* `memora_act`: Interacts with elements (`click`, `type`) using `@1`, `@2` action IDs or selectors.
+* `memora_browse`: Loads any technical documentation or web page, executes scripts, and returns clean Markdown + Action Map saving 95% prompt tokens. Supports `focusSelector` and `excludeSelectors`.
+* `memora_act`: Interacts with elements (`click`, `type`) using `@1`, `@2` action IDs or CSS selectors.
+* `memora_diff`: Computes state diff between sequential agent actions (added, removed, mutated interactives).
+* `memora_fill_form`: Fills multiple fields (text, select, checkbox, radio, textarea, contenteditable) and multi-step form wizards in one atomic turn.
+* `memora_session`: Saves and restores cookies, localStorage, and sessionStorage across sessions.
 * `memora_inspect`: Inspects active DOM structure and interactive elements.
 * `memora_eval`: Evaluates JavaScript inside the page's V8 sandbox.
 * `memora_fork`: Speculatively clones the page state in `< 1ms` to test alternative UI paths.
+
+### ⚙️ Dual-Tier Engine Flag (`--engine native|chrome|auto`)
+Memora features a hybrid dual-tier architecture:
+* `--engine native` (Default): Ultra-lightweight custom DOM + V8 sandbox engine (<15ms cold start, ~18MB RAM, zero GPU). Supports `<script type="module">` ESM bundles in-memory.
+* `--engine chrome`: Uses headless Chromium when full GPU pixel rendering or obscure browser APIs are required.
+* `--engine auto`: Automatically evaluates target page complexity and routes accordingly.
+
+```bash
+# Run MCP server with Chrome fallback engine
+npx memora-browser --mcp --engine chrome
+```
 
 ---
 
@@ -211,39 +225,105 @@ Programmatic use: `new MemoraBrowser({ network: { proxy: 'http://user:pass@host:
 
 ---
 
-## 🧠 Autonomous AI Agent Loop (`@actionId` Primitives)
+## 🧠 Autonomous AI Agent Loop (`MemoraAgent` & `@actionId` Primitives)
 
-AI agents can interact directly with concise action IDs (`@1`, `@2`) without generating brittle CSS or XPath selectors:
+AI agents can interact directly with concise action IDs (`@1`, `@2`) or use the high-level **1-line `MemoraAgent` controller**:
 
 ```typescript
-import { MemoraBrowser } from 'memora-browser';
+import { MemoraAgent } from 'memora-browser';
 
-const browser = new MemoraBrowser({ stealth: true });
-const page = browser.newPage();
+// 1-line launcher with anti-detect stealth and instant CDP server
+const agent = await MemoraAgent.launch({ stealth: true });
 
-await page.goto('https://app.example.com/login');
-
-// 1. Get compact LLM-ready representation (<1000 tokens)
-const snapshot = page.getSemanticSnapshot();
+// Navigate and get compact LLM-ready representation (<1000 tokens)
+const snapshot = await agent.goto('https://app.example.com/checkout');
 console.log(snapshot.actionMapText);
 /*
-=== INTERACTIVE ACTION MAP (4 elements) ===
-[@1] [input:email] "Work Email" placeholder="you@company.com" (selector: #email)
-[@2] [input:password] "Password" (selector: #password)
-[@3] [button] "Sign In" type="submit" (selector: #btn-submit)
-[@4] [link] "Forgot password?" href="/forgot" (selector: .forgot-link)
+=== INTERACTIVE ACTION MAP ===
+[@1] [input:text] "First Name" (selector: #fname)
+[@2] [input:email] "Email Address" (selector: #email)
+[@3] [select] "Country" (selector: #country)
+[@4] [input:checkbox] "Subscribe to newsletter" (selector: #newsletter)
+[@5] [button] "Proceed to Payment" (selector: #btn-next)
 */
 
-// 2. Direct high-level actions
-page.type('@1', 'agent@memora.ai');
-page.type('@2', 'SuperSecretPassword');
+// 1. Single-turn Form Filling (all standard input types)
+await agent.fillForm({
+  '@1': 'Jane Doe',
+  '@2': 'jane@enterprise.com',
+  '@3': 'United States',
+  '@4': 'true' // checkboxes, radios, dates, textareas, and contenteditable
+}, /* submit: */ true);
 
-// 3. Speculative Forking (Explore alternatives in parallel without network penalty!)
-const speculativeBranch = page.fork();
-speculativeBranch.click('@4'); // tests forgot password path on a lightweight clone
+// 2. Observe what changed on the page with State Diffing
+const diff = agent.diff();
+console.log(diff.summary);
+// "+ Added: [@6] [input] Card Number, [@7] [button] Pay Now"
 
-// 4. Continue main workflow
-page.click('@3'); // submits main form
+// 3. Multi-Step Form Wizards (Atomic execution)
+await agent.page.fillForm({
+  steps: [
+    { fields: { '#fname': 'Jane', '#email': 'jane@enterprise.com' }, submitActionId: '#btn-next' },
+    { fields: { '#card': '424242424242', '#cvv': '123' }, submitActionId: '#btn-pay' }
+  ]
+});
+
+// 4. Save and restore sessions (Cookies, localStorage, sessionStorage)
+agent.saveSession('./sessions/checkout.json');
+
+// 5. Speculative Forking (Explore alternatives in parallel without network penalty!)
+const speculativeBranch = agent.fork();
+speculativeBranch.act('@5'); // tests alternate checkout path on a lightweight clone
+
+await agent.close();
+```
+
+---
+
+## 🧩 Framework Adapters (Browser-Use, Stagehand, LangChain)
+
+### 1. Browser-Use (TypeScript & Python)
+Memora is a drop-in high-speed engine for [Browser-Use](https://github.com/browser-use/browser-use):
+
+```typescript
+// TypeScript
+import { MemoraAgent, getBrowserUseConfig } from 'memora-browser';
+
+const agent = await MemoraAgent.launch({ cdpPort: 9222 });
+const config = getBrowserUseConfig(agent);
+// Pass config.cdpUrl ('http://127.0.0.1:9222') into Browser-Use Controller
+```
+
+```python
+# Python
+from memora import MemoraAgent
+
+agent = MemoraAgent.connect("http://127.0.0.1:9222")
+snap = agent.goto("https://news.ycombinator.com")
+print(snap.action_map_text)
+
+# Direct form fill & diff
+agent.act("@1")
+diff = agent.diff()
+```
+
+### 2. Stagehand
+```typescript
+import { MemoraAgent, getStagehandConfig } from 'memora-browser';
+import { Stagehand } from '@browserbasehq/stagehand';
+
+const agent = await MemoraAgent.launch({ cdpPort: 9222 });
+const stagehand = new Stagehand(getStagehandConfig(agent));
+await stagehand.init();
+```
+
+### 3. LangChain
+```typescript
+import { MemoraAgent, createMemoraLangChainTools } from 'memora-browser';
+
+const agent = await MemoraAgent.launch();
+const tools = createMemoraLangChainTools(agent);
+// tools = [memora_navigate, memora_snapshot, memora_act, memora_diff, memora_fill_form]
 ```
 
 ---
@@ -252,12 +332,20 @@ page.click('@3'); // submits main form
 
 In addition to standard CDP domains (`Page`, `Runtime`, `DOM`, `Network`, `Target`, `Input`), Memora Browser provides custom agent acceleration methods:
 
-- `Memora.getSemanticSnapshot`: Returns `{ actionMapText, actions, markdown, tokenEstimate, interactiveCount }`.
+- `Memora.getSemanticSnapshot`: Returns `{ actionMapText, actions, markdown, tokenEstimate, interactiveCount }`. Supports `focusSelector` and `excludeSelectors`.
+- `Memora.diff`: Compares current page state against previous state, returning `{ diff: PageDiffResult, currentSnapshot }`.
+- `Memora.fillForm`: Population of fields across input types and multi-step forms: `{ fields: {...}, submit: true }`.
+- `Memora.saveSession`: Serializes cookies, localStorage, and sessionStorage to file: `{ filePath: "session.json" }`.
+- `Memora.loadSession`: Deserializes and restores complete storage: `{ filePath: "session.json" }`.
 - `Memora.act`: Executes an action directly by actionId: `{ actionId: "@1", type: "type", text: "..." }`.
 - `Memora.getMarkdown`: Returns clean, distilled Markdown for the current page.
 
 ### REST API Endpoints:
-- `GET /memora/snapshot?id={pageId}`: Returns distilled JSON snapshot over HTTP.
+- `GET /memora/snapshot?focus={sel}&exclude={sel}&format=markdown`: Returns distilled JSON or Markdown snapshot over HTTP.
+- `GET /memora/diff` & `POST /memora/diff`: State comparison endpoint.
+- `POST /memora/fill-form`: Multi-field form submission.
+- `POST /memora/act`: Direct action by actionId (`@1`, `@2`) or selector.
+- `GET /memora/session` & `POST /memora/session`: Export, save, or restore session state.
 - `GET /memora/goto?url={url}`: Navigates and returns distilled result in a single HTTP round-trip.
 
 ---

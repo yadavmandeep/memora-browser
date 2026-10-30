@@ -33,6 +33,8 @@ export class MemoraBrowser {
   }
 
   public closePage(id: string): boolean {
+    // Stop the page's timers / in-flight requests
+    this.pages.get(id)?.close();
     return this.pages.delete(id);
   }
 
@@ -48,6 +50,7 @@ export class MemoraBrowser {
   }
 
   public close(): void {
+    for (const page of this.pages.values()) page.close();
     this.pages.clear();
     this.pool.close().catch(() => {});
   }

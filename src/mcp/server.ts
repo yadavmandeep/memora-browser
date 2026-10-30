@@ -1,12 +1,55 @@
 import readline from 'node:readline';
-import { ChromeEngine } from '../engine/chrome-engine.js';
+import { ChromeEngine, findSystemChrome } from '../engine/chrome-engine.js';
+import { NativeEngineAdapter } from '../engine/native-adapter.js';
 import { NetworkOptions } from '../types/index.js';
 
-export class MCPServer {
-  private engine: ChromeEngine;
+export type MCPEngineType = 'auto' | 'native' | 'chrome';
 
-  constructor(network: NetworkOptions = {}) {
-    this.engine = new ChromeEngine(network);
+export interface IMemoraEngine {
+  goto(url: string, timeoutMs?: number): Promise<{ status: number; url: string }>;
+  getSemanticSnapshot(options?: any): Promise<any>;
+  getMarkdown(options?: any): Promise<string>;
+  diff(previous?: any, options?: any): Promise<any>;
+  fillForm(options: any): Promise<any>;
+  act(target: string, type: 'click' | 'type', text?: string): Promise<{ success: boolean; url: string; title: string }>;
+  inspect(): Promise<any>;
+  extract(selector: string, attribute?: string, limit?: number): Promise<any[]>;
+  storage(storageType: 'local' | 'session', action: string, key?: string, value?: string): Promise<string>;
+  cookies(action: string, name?: string, value?: string): Promise<string>;
+  getLogs(clear?: boolean): Array<{ type: string; text: string; timestamp: number }>;
+  reload(): Promise<{ status: number; url: string }>;
+  html(selector?: string): Promise<string>;
+  evaluate(code: string): Promise<any>;
+  getStructuredData(): Promise<any>;
+  fork(): Promise<string>;
+  saveSession(filePath: string): Promise<void>;
+  loadSession(filePath: string): Promise<void>;
+  close(): Promise<void>;
+}
+
+export class MCPServer {
+  private engine: IMemoraEngine;
+  public readonly engineType: MCPEngineType;
+
+  constructor(network: NetworkOptions = {}, engineType: MCPEngineType = 'auto') {
+    this.engineType = engineType;
+
+    if (engineType === 'chrome') {
+      this.engine = new ChromeEngine(network);
+    } else if (engineType === 'native') {
+      this.engine = new NativeEngineAdapter(network);
+    } else {
+      // Auto: Prefer Chrome if installed on machine, fallback to zero-graphics Native
+      if (findSystemChrome()) {
+        try {
+          this.engine = new ChromeEngine(network);
+        } catch {
+          this.engine = new NativeEngineAdapter(network);
+        }
+      } else {
+        this.engine = new NativeEngineAdapter(network);
+      }
+    }
   }
 
   public start(): void {
@@ -91,19 +134,21 @@ export class MCPServer {
             tools: [
               {
                 name: 'memora_browse',
-                description: 'Fast, token-condensed headless web browser for AI coding agents. Loads URL with full client-side JS/React/Vite execution, and distills page into clean Markdown and interactive Action Map (@1, @2) with 95% token savings.',
+                description: 'Fast, token-condensed headless web browser for AI coding agents. Loads URL, distills page into clean Markdown and interactive Action Map (@1, @2) with 95% token savings. Supports focus and exclude filters.',
                 inputSchema: {
                   type: 'object',
                   properties: {
                     url: { type: 'string', description: 'The web URL to browse (e.g. localhost app, docs, dashboard, issue tracker)' },
-                    timeout: { type: 'number', description: 'Timeout in milliseconds (default: 20000)' }
+                    timeout: { type: 'number', description: 'Timeout in milliseconds (default: 20000)' },
+                    focus: { type: 'string', description: 'Optional CSS selector to focus distillation on (e.g. "main", "article", "#content")' },
+                    exclude: { type: 'array', items: { type: 'string' }, description: 'Optional list of CSS selectors to strip (e.g. ["nav", "footer", ".ad", ".cookie-banner"])' }
                   },
                   required: ['url']
                 }
               },
               {
                 name: 'memora_act',
-                description: 'Interact with an element on the loaded page using action ID (@1, @2) or CSS selector. Simulates human click or text input with full React/Vite event triggering.',
+                description: 'Interact with an element on the loaded page using action ID (@1, @2) or CSS selector. Simulates human click or text input with full event triggering.',
                 inputSchema: {
                   type: 'object',
                   properties: {
@@ -115,11 +160,52 @@ export class MCPServer {
                 }
               },
               {
+                name: 'memora_diff',
+                description: 'Inspect state changes (added, removed, mutated elements, URL changes) since the last page action or snapshot. Massive token savings for multi-turn agent loops.',
+                inputSchema: {
+                  type: 'object',
+                  properties: {}
+                }
+              },
+              {
+                name: 'memora_fill_form',
+                description: 'Fill multiple form inputs and optionally click submit in a single turn. Accepts a key-value mapping of action IDs (e.g. {"@1": "john@doe.com", "@2": "pass"}) or selectors to values, and an optional submitActionId (e.g. "@3").',
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    fields: {
+                      type: 'object',
+                      description: 'Key-value map of action IDs (@1, @2) or selectors to field values',
+                      additionalProperties: { type: 'string' }
+                    },
+                    submitActionId: {
+                      type: 'string',
+                      description: 'Optional action ID (@3) or selector of button or form to submit'
+                    }
+                  },
+                  required: ['fields']
+                }
+              },
+              {
+                name: 'memora_session',
+                description: 'Save or load browser session data (cookies, localStorage, sessionStorage) to/from a local JSON file for persistent authentication.',
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    action: { type: 'string', enum: ['save', 'load'], description: 'Action: "save" or "load"' },
+                    path: { type: 'string', description: 'File path to save to or load from (e.g. "./session.json")' }
+                  },
+                  required: ['action', 'path']
+                }
+              },
+              {
                 name: 'memora_inspect',
                 description: 'Inspect current page DOM state, title, and all interactive action items (@1, @2, @3).',
                 inputSchema: {
                   type: 'object',
-                  properties: {}
+                  properties: {
+                    focus: { type: 'string', description: 'Optional CSS selector to scope inspection to' }
+                  }
                 }
               },
               {
@@ -273,13 +359,19 @@ export class MCPServer {
   private async executeTool(name: string, args: any): Promise<string> {
     switch (name) {
       case 'memora_browse': {
-        const { url, timeout } = args;
+        const { url, timeout, focus, exclude } = args;
         const t0 = performance.now();
         const resp = await this.engine.goto(url, timeout || 20000);
         const duration = (performance.now() - t0).toFixed(1);
 
-        const snapshot = await this.engine.getSemanticSnapshot();
-        const markdown = await this.engine.getMarkdown();
+        const snapshot = await this.engine.getSemanticSnapshot({
+          focusSelector: focus,
+          excludeSelectors: exclude
+        });
+        const markdown = await this.engine.getMarkdown({
+          focusSelector: focus,
+          excludeSelectors: exclude
+        });
 
         return [
           `# Page Loaded: ${snapshot.title} (${duration}ms)`,
@@ -306,8 +398,41 @@ export class MCPServer {
         ].join('\n');
       }
 
+      case 'memora_diff': {
+        const diff = await this.engine.diff();
+        return diff.summary;
+      }
+
+      case 'memora_fill_form': {
+        const { fields, submitActionId } = args;
+        const res = await this.engine.fillForm({ fields, submitActionId });
+        const snapshot = await this.engine.getSemanticSnapshot();
+        return [
+          `Form fill completed! Filled ${res.fieldsFilled} field(s)${res.submitted ? ', submitted form' : ''}.`,
+          `Current URL: ${res.url}`,
+          `Page Title: "${res.title}"`,
+          '',
+          snapshot.actionMapText
+        ].join('\n');
+      }
+
+      case 'memora_session': {
+        const { action, path: sPath } = args;
+        if (action === 'save') {
+          await this.engine.saveSession(sPath);
+          return `Session successfully exported to "${sPath}".`;
+        } else if (action === 'load') {
+          await this.engine.loadSession(sPath);
+          const snap = await this.engine.getSemanticSnapshot();
+          return `Session successfully loaded from "${sPath}". Active URL: ${snap.url}`;
+        }
+        throw new Error(`Unsupported session action: "${action}"`);
+      }
+
       case 'memora_inspect': {
-        const snapshot = await this.engine.inspect();
+        const snapshot = await this.engine.getSemanticSnapshot({
+          focusSelector: args.focus
+        });
         return [
           `Page Title: ${snapshot.title}`,
           `URL: ${snapshot.url}`,

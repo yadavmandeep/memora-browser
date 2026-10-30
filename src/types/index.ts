@@ -1,3 +1,5 @@
+export * from '../distiller/structured-data.js';
+
 export interface NodeAttribute {
   name: string;
   value: string;
@@ -27,6 +29,15 @@ export interface InteractiveElement {
   isClickable: boolean;
   isInput: boolean;
   disabled: boolean;
+  checked?: boolean;
+  expanded?: boolean;
+  selected?: boolean;
+}
+
+export interface SnapshotOptions {
+  focusSelector?: string;
+  excludeSelectors?: string[];
+  filterHidden?: boolean;
 }
 
 export interface SemanticPageSnapshot {
@@ -37,6 +48,53 @@ export interface SemanticPageSnapshot {
   actions: InteractiveElement[];
   actionMapText: string;
   markdown: string;
+}
+
+export interface PageDiff {
+  urlChanged: boolean;
+  previousUrl: string;
+  currentUrl: string;
+  titleChanged: boolean;
+  previousTitle: string;
+  currentTitle: string;
+  addedActions: InteractiveElement[];
+  removedActions: InteractiveElement[];
+  mutatedActions: Array<{
+    actionId: string;
+    selector: string;
+    role: string;
+    text: string;
+    changes: Record<string, { from: any; to: any }>;
+  }>;
+  summary: string;
+}
+
+export interface FormFillOptions {
+  fields?: Record<string, string>; // target (actionId or selector) -> value
+  submit?: string | boolean; // selector/actionId of button to click, or boolean to auto-submit form
+  submitActionId?: string; // alias for submit (backward compatibility)
+  steps?: FormFillOptions[]; // sequence of form steps
+}
+
+export type FormStep = FormFillOptions;
+
+export interface FormFillResult {
+  success: boolean;
+  filled: string[];
+  skipped: string[];
+  fieldsFilled: number;
+  submitted: boolean;
+  url: string;
+  title: string;
+}
+
+export interface SessionData {
+  version: 1;
+  createdAt: string;
+  url: string;
+  cookies: Record<string, string>;
+  localStorage: Record<string, string>;
+  sessionStorage: Record<string, string>;
 }
 
 export interface PageState {
@@ -100,4 +158,5 @@ export interface BrowserOptions {
   viewport?: { width: number; height: number };
   timeout?: number;
   network?: NetworkOptions;
+  engine?: 'native' | 'chrome' | 'auto';
 }
