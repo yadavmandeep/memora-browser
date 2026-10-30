@@ -13,6 +13,10 @@
 [![RAM Footprint](https://img.shields.io/badge/RAM-~18MB%20base-success.svg)]()
 [![Token Savings](https://img.shields.io/badge/LLM%20Tokens-95%25%20reduction-purple.svg)]()
 
+<p align="center">
+  <img src="./assets/orbis-hero.png" alt="Orbis by Memora - The Agentic Browser" width="100%" />
+</p>
+
 ---
 
 ## 📑 Table of Contents
