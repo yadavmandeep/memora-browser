@@ -284,7 +284,7 @@ export class WebDriverServer {
   constructor(options: WebDriverServerOptions = {}) {
     this.options = {
       port: 9222,
-      host: '127.0.0.1',
+      host: 'localhost',
       maxSessions: 16,
       sessionIdleTimeoutMs: 5 * 60 * 1000,
       ...options,
@@ -302,7 +302,8 @@ export class WebDriverServer {
   public async start(): Promise<void> {
     await new Promise<void>((resolve, reject) => {
       this.server.once('error', reject);
-      this.server.listen(this.options.port, this.options.host, () => resolve());
+      const bindHost = (this.options.host === 'localhost' || this.options.host === '127.0.0.1') ? '0.0.0.0' : this.options.host;
+      this.server.listen(this.options.port, bindHost, () => resolve());
     });
     if (this.options.sessionIdleTimeoutMs > 0) {
       this.reaper = setInterval(() => {

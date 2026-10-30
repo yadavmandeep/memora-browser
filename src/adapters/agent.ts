@@ -53,7 +53,7 @@ export class OrbisAgent {
     await cdpServer.start();
     const page = browser.newPage();
     const agent = new OrbisAgent(browser, page, cdpServer);
-    agent.cdpHttpUrl = `http://127.0.0.1:${port}`;
+    agent.cdpHttpUrl = `http://localhost:${port}`;
     agent.apiKey = apiKey;
     return agent;
   }
@@ -61,9 +61,9 @@ export class OrbisAgent {
   /**
    * Connect to an existing running Orbis CDP endpoint over HTTP / WebSocket.
    * Example:
-   *   const agent = await OrbisAgent.connect('http://127.0.0.1:9222', { apiKey: '...' });
+   *   const agent = await OrbisAgent.connect('http://localhost:9222', { apiKey: '...' });
    */
-  public static async connect(cdpUrl: string = 'http://127.0.0.1:9222', options: { apiKey?: string } = {}): Promise<OrbisAgent> {
+  public static async connect(cdpUrl: string = 'http://localhost:9222', options: { apiKey?: string } = {}): Promise<OrbisAgent> {
     const parsed = new URL(cdpUrl);
     const apiKey = options.apiKey || process.env.ORBIS_API_KEY || process.env.MEMORA_API_KEY;
     const headers: Record<string, string> = {};
@@ -114,7 +114,7 @@ export class OrbisAgent {
   }
 
   /**
-   * Execute an interaction by action ID (e.g. '@1', '@2') or CSS selector.
+   * Execute an interaction by action ID (e.g. '@1', '@email'), Playwright locator (label:, text=, placeholder:), XPath, or CSS selector.
    */
   public act(actionId: string, text?: string): boolean {
     if (text !== undefined) {
@@ -124,9 +124,21 @@ export class OrbisAgent {
   }
 
   /**
-   * Fill out an entire form in a single atomic turn and optionally submit.
+   * Select a dropdown option by label, value, or option index on <select> or ARIA listboxes.
+   * Example:
+   *   agent.selectOption('#country', 'India');
+   *   agent.selectOption('@4', 'India');
+   *   agent.selectOption('label:Country', 'India');
    */
-  public async fillForm(fields: Record<string, string>, submit: boolean = true) {
+  public selectOption(target: string, valueOrText: string): boolean {
+    return this.page.selectDropdownOption(target, valueOrText);
+  }
+
+  /**
+   * Fill out an entire form in a single atomic turn and optionally submit.
+   * Supports @IDs, semantic aliases (@email), CSS selectors, labels (label:Email), and placeholders.
+   */
+  public async fillForm(fields: Record<string, string>, submit: boolean | string = true) {
     return this.page.fillForm({
       fields,
       submit
@@ -166,7 +178,7 @@ export class OrbisAgent {
    * Return CDP connection URLs for Playwright, Stagehand, or Browser-Use.
    */
   public get cdpEndpoint(): string {
-    return this.cdpHttpUrl || `http://127.0.0.1:${this.browser.options.port || 9222}`;
+    return this.cdpHttpUrl || `http://localhost:${this.browser.options.port || 9222}`;
   }
 
   /**

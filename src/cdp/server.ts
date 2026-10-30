@@ -32,7 +32,7 @@ export class CDPServer {
   constructor(browser: MemoraBrowser) {
     this.browser = browser;
     this.port = browser.options.port || 9222;
-    this.host = browser.options.host || '127.0.0.1';
+    this.host = browser.options.host || 'localhost';
     this.apiKey = browser.options.apiKey || process.env.ORBIS_API_KEY || process.env.MEMORA_API_KEY;
     this.dispatcher = new CDPDispatcher(browser);
 
@@ -430,8 +430,10 @@ export class CDPServer {
   }
 
   public async start(): Promise<void> {
-    return new Promise((resolve) => {
-      this.httpServer.listen(this.port, this.host, () => {
+    return new Promise((resolve, reject) => {
+      this.httpServer.on('error', reject);
+      const bindHost = (this.host === 'localhost' || this.host === '127.0.0.1') ? '0.0.0.0' : this.host;
+      this.httpServer.listen(this.port, bindHost, () => {
         resolve();
       });
     });

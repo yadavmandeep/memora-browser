@@ -239,7 +239,7 @@ async function runServer(options: any): Promise<void> {
 function addServerOptions(cmd: Command): Command {
   return addNetworkOptions(cmd
     .option('-p, --port <number>', 'CDP / WebDriver / HTTP port', '9222')
-    .option('-h, --host <string>', 'Host address', '127.0.0.1')
+    .option('-h, --host <string>', 'Host address', 'localhost')
     .option('--protocol <protocol>', 'Automation protocol to serve: cdp (Playwright/Puppeteer) or webdriver (Selenium)', 'cdp')
     .option('--engine <engine>', 'Engine backend: native (ultra-fast zero-graphics), chrome (system Chromium), or auto', 'auto')
     .option('--max-sessions <number>', 'Maximum concurrent WebDriver sessions', '16')

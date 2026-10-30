@@ -24,7 +24,7 @@ Choose how you want to use Orbis:
 | **Cursor, Claude Desktop, Antigravity** | [1. AI Coding Assistants (MCP)](#1-ai-coding-assistants-mcp-setup) | No install needed (`npx`) |
 | **Global Terminal CLI** | [2. Global CLI Installation](#2-global-cli-installation) | `npm install -g memora-orbis` |
 | **TypeScript / Node.js Agents** | [3. TypeScript / Node.js Developers](#3-typescript--nodejs-developers) | `npm install memora-orbis` |
-| **Python Agents (Browser-Use, LangChain, CrewAI)** | [4. Python AI Developers](#4-python-ai-developers-pip) | `pip install memora-browser` |
+| **Python Agents (Browser-Use, LangChain, CrewAI)** | [4. Python AI Developers](#4-python-ai-developers-pip) | `pip install memora-orbis` |
 | **Playwright / Puppeteer** | [5. Playwright & Puppeteer Users](#5-playwright--puppeteer-drop-in) | Drop-in CDP (`ws://...`) |
 | **Selenium / W3C WebDriver** | [6. Selenium (W3C WebDriver)](#6-selenium-w3c-webdriver-classic) | No chromedriver needed |
 | **Docker / Cloud / Kubernetes** | [7. Docker & Cloud Deployment](#7-docker--cloud-deployments) | Pre-built Docker container |
@@ -94,8 +94,8 @@ orbis --version
 # Run instant semantic page distillation
 orbis --eval https://example.com
 
-# Start daemon server with anti-detect stealth
-orbis --port 9222 --stealth
+# Start daemon server (anti-detect stealth is on by default)
+orbis --port 9222
 ```
 *(Aliases: `orbis`, `memora-orbis`, and `memora-browser` all point to the same compiled binary).*
 
@@ -119,11 +119,18 @@ const agent = await OrbisAgent.launch({ stealth: true, cdpPort: 9222 });
 const snapshot = await agent.goto('https://example.com');
 console.log(snapshot.actionMapText);
 
-// Autonomous self-healing form fill
+// Multi-modal form filling (supports @IDs, labels, placeholders, or CSS):
 await agent.fillForm({
-  '@1': 'user@example.com',
-  '@2': 'Password123!'
-}, /* submit: */ true);
+  'label:Email Address': 'user@example.com',
+  'placeholder:Password': 'Password123!',
+  '#country': 'United States'
+}, /* submit: */ 'text=Sign In');
+
+// Direct interaction with any locator:
+agent.act('@1', 'user@example.com');                  // Ephemeral @ID (AI agents)
+agent.act('label:Email Address', 'user@example.com'); // Playwright label (Tests)
+agent.selectOption('#country', 'India');              // Dropdown selection by label/value
+agent.act('text=Sign In');                            // Playwright text
 
 // Check what changed in the DOM
 const diff = agent.diff();
@@ -134,6 +141,23 @@ agent.saveSession('./sessions/auth-state.json');
 
 await agent.close();
 ```
+
+#### 🎯 Universal Locators Reference
+
+Orbis provides a modular **Strategy Pattern locator engine** that works across all agent commands:
+
+| Locator Strategy | Syntax Pattern | Code Example | Best For |
+| :--- | :--- | :--- | :--- |
+| **Action ID (Default)** | `@<number>` | `agent.act('@4', 'alex@example.com')` | Autonomous AI agents (zero XPath hallucination, minimal tokens) |
+| **Semantic Alias** | `@<name>` | `agent.act('@email', 'alex@example.com')` | AI agent workflows resilient to new DOM insertions |
+| **Playwright Label** | `label:<text>` | `agent.act('label:Email Address', 'alex@...')` | Deterministic test suites (never breaks on layout changes) |
+| **Playwright Text** | `text=<text>` | `agent.act('text=Create Account')` | Buttons, links, and clickable text elements |
+| **Playwright Placeholder** | `placeholder:<text>` | `agent.act('placeholder:Password', '...')` | Modern web forms with placeholder hints |
+| **Playwright Role** | `role:<role>[name="..."]` | `agent.act('role:button[name="Submit"]')` | Accessible ARIA-compliant applications |
+| **Test ID** | `testid:<id>` | `agent.act('testid:submit-btn')` | Cypress, Playwright, and React `data-testid` attributes |
+| **Selenium XPath** | `//...` or `xpath:...` | `agent.act('//button[@type="submit"]')` | Enterprise Selenium test migrations |
+| **Standard CSS** | `#id`, `.class`, `[attr]` | `agent.act('#country-select')` | Standard web automation scripts |
+| **Dropdown Selection** | `agent.selectOption(target, val)` | `agent.selectOption('#country', 'India')` | Native `<select>` & dynamic ARIA listboxes |
 
 ### Integration with Stagehand
 ```typescript
@@ -165,12 +189,12 @@ Ideal for **Browser-Use**, **LangChain**, **CrewAI**, **AutoGen**, and Python LL
 ### Step 1: Start the Orbis Daemon
 In your terminal (or run as background service):
 ```bash
-npx memora-orbis --port 9222 --stealth
+npx memora-orbis --port 9222
 ```
 
 ### Step 2: Install Python SDK
 ```bash
-pip install memora-browser
+pip install memora-orbis
 ```
 
 ### Step 3: Quick Start Script
@@ -178,22 +202,27 @@ pip install memora-browser
 from memora import MemoraAgent
 
 # 1-line connection to Orbis daemon
-agent = MemoraAgent.connect("http://127.0.0.1:9222")
+agent = MemoraAgent.connect("http://localhost:9222")
 
 # Navigate to target page (returns distilled token-efficient snapshot)
 snap = agent.goto("https://example.com")
 print(f"Title: {snap.title} | Tokens: ~{snap.token_estimate}")
 print(snap.action_map_text)
 
-# Interact directly via @actionId
+# Interact via @actionId, Playwright label, or text
 agent.act("@1")
+agent.act("label:Email Address", "agent@memora.company")
+agent.act("text=Sign In")
 
 # Check state changes between turns
 diff = agent.diff()
 print(diff["diff"]["summary"])
 
-# Fill out forms in 1 turn
-agent.fill_form({"#username": "agent_007", "#password": "secret"}, submit=True)
+# Fill out forms with resilient locators (labels, placeholders, @ids, #ids)
+agent.fill_form({
+    "label:Email Address": "agent_007@memora.company",
+    "placeholder:Password": "secret"
+}, submit="text=Sign In")
 ```
 
 ### Integration with Browser-Use (Python)
@@ -202,7 +231,7 @@ from memora import MemoraAgent
 from browser_use import Agent
 from langchain_openai import ChatOpenAI
 
-memora = MemoraAgent.connect("http://127.0.0.1:9222")
+memora = MemoraAgent.connect("http://localhost:9222")
 
 # Browser-Use automatically connects over Orbis's ultra-lightweight CDP
 agent = Agent(
@@ -220,7 +249,7 @@ Orbis speaks the raw Chrome DevTools Protocol (CDP). Existing Playwright and Pup
 
 ### Step 1: Start Orbis CDP Server
 ```bash
-npx memora-orbis --port 9222 --stealth
+npx memora-orbis --port 9222
 ```
 
 ### Step 2: Connect Playwright
@@ -228,7 +257,7 @@ npx memora-orbis --port 9222 --stealth
 import { chromium } from 'playwright';
 
 // Connect directly to Orbis CDP socket
-const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
+const browser = await chromium.connectOverCDP('http://localhost:9222');
 const page = await browser.newPage();
 
 await page.goto('https://example.com');
@@ -254,7 +283,7 @@ from selenium import webdriver
 
 options = webdriver.ChromeOptions()
 driver = webdriver.Remote(
-    command_executor="http://127.0.0.1:9222",
+    command_executor="http://localhost:9222",
     options=options
 )
 
@@ -287,7 +316,7 @@ services:
       - NODE_ENV=production
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9222/json/version"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:9222/json/version"]
       interval: 15s
       timeout: 3s
       retries: 3
@@ -304,7 +333,7 @@ All commands (`npx orbis`, `npx memora-orbis`, `fetch`, `serve`) support HTTP, H
 npx orbis --http-proxy 'http://user:pass@proxy.example.com:3128'
 
 # SOCKS5 proxy with bypass list for internal corporate domains
-npx orbis --http-proxy 'socks5://127.0.0.1:1080' --proxy-bypass 'localhost,.internal.corp'
+npx orbis --http-proxy 'socks5://localhost:1080' --proxy-bypass 'localhost,.internal.corp'
 
 # Respect environment variables (HTTP_PROXY / HTTPS_PROXY / NO_PROXY)
 npx orbis --use-env-proxy

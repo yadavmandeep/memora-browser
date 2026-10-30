@@ -21,5 +21,6 @@ HEALTHCHECK --interval=15s --timeout=3s --start-period=5s --retries=3 \
 
 # Run Memora Browser daemon
 ENTRYPOINT ["node", "./dist/cli/index.js"]
-CMD ["--port", "9222", "--host", "0.0.0.0", "--stealth"]
+# Stealth is on by default (there is no --stealth flag; use --no-stealth to disable it)
+CMD ["--port", "9222", "--host", "0.0.0.0"]
 

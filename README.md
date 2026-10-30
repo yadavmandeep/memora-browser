@@ -6,7 +6,7 @@
 > 🌐 **Product Portal:** [orbis.memora.company](https://orbis.memora.company) • **Company:** [memora.company](https://memora.company)  
 > ⚡ **Core Engine:** Memora Browser Engine (MBE) (`memora-browser`) — *Drop-in CDP & W3C WebDriver for AI Agents & LLMs*
 
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-Commercial%20%26%20Community%20Evaluation-blue.svg)](LICENSE.md)
 [![Tests](https://img.shields.io/badge/tests-82%20passed%20(100%25)-brightgreen.svg)]()
 [![CDP Wire Protocol](https://img.shields.io/badge/CDP-Chrome%20130%20Compatible-blue.svg)]()
 [![W3C WebDriver](https://img.shields.io/badge/W3C%20WebDriver-Selenium%20Ready-orange.svg)]()
@@ -25,6 +25,7 @@
 - [⚡ Quick Start: 30 Seconds to Launch](#-quick-start-30-seconds-to-launch)
 - [🔌 Model Context Protocol (MCP) for Cursor, Claude & Windsurf](#-model-context-protocol-mcp-for-cursor--claude)
 - [🧠 1-Line Autonomous Agent Loop (`OrbisAgent`)](#-1-line-autonomous-agent-loop-orbisagent)
+- [🎯 Universal Locators Reference (Action IDs, Labels, XPath, CSS)](#-universal-locators-reference)
 - [🤖 Playwright & Puppeteer (Zero Code Changes)](#-playwright--puppeteer-drop-in-integration)
 - [🧪 Selenium & W3C WebDriver Classic](#-selenium--w3c-webdriver-classic)
 - [🐍 Python SDK (Browser-Use, LangChain, CrewAI)](#-python-sdk)
@@ -50,7 +51,7 @@ Traditional headless browsers (Chromium, Firefox, WebKit) were designed for **hu
 2. **Native AXTree & Action Map Distillation (< 2ms)**: Condenses any dynamic webpage into clean Markdown and an indexed Semantic Action Tree (`[@1]`, `[@2]`, `[@3]`), saving **up to 95% LLM prompt tokens**.
 3. **Speculative Branching (`page.fork()` in < 1ms)**: Instant Copy-on-Write page branching. AI agents can test multiple UI paths or form submissions simultaneously with zero network penalty.
 4. **Autonomous Self-Healing Form Filler**: Supports text, textarea, select, checkbox, radio, and contenteditable in one atomic turn with multi-step wizard pipelines.
-5. **Drop-in Wire Compatibility**: Exposes standard Chrome DevTools Protocol (`ws://127.0.0.1:9222`) and W3C WebDriver. Your existing **Playwright**, **Puppeteer**, **Selenium**, **Browser-Use**, and **Stagehand** code works out of the box with zero changes.
+5. **Drop-in Wire Compatibility**: Exposes standard Chrome DevTools Protocol (`ws://localhost:9222`) and W3C WebDriver. Your existing **Playwright**, **Puppeteer**, **Selenium**, **Browser-Use**, and **Stagehand** code works out of the box with zero changes.
 6. **Built-in Anti-Detect Stealth**: Engine-level evasion of `navigator.webdriver`, genuine Chrome 130 Client Hints, hardware emulation, and coherent TLS profiles.
 
 ---
@@ -79,9 +80,8 @@ You don't even need to install it globally. Run directly via `npx`:
 
 ### 1. Launch standalone CDP Server:
 ```bash
-npx orbis --port 9222 --stealth
-# or via package alias:
-npx memora-browser --port 9222 --stealth
+npx memora-orbis --port 9222
+# stealth is on by default; pass --no-stealth to turn it off
 ```
 
 Output:
@@ -94,9 +94,9 @@ Output:
   ▶ Website & Docs:     https://orbis.memora.company
   ▶ Parent Company:     https://memora.company
   ▶ Core Engine:        Memora Browser Engine (MBE)
-  ▶ CDP WebSocket:      ws://127.0.0.1:9222/devtools/browser/memora-root
-  ▶ Discovery Endpoint: http://127.0.0.1:9222/json/version
-  ▶ Agent Snapshot:     http://127.0.0.1:9222/orbis/snapshot
+  ▶ CDP WebSocket:      ws://localhost:9222/devtools/browser/memora-root
+  ▶ Discovery Endpoint: http://localhost:9222/json/version
+  ▶ Agent Snapshot:     http://localhost:9222/orbis/snapshot
   ▶ Memory Footprint:   ~83.4 MB (Chromium uses ~350MB+)
   ▶ Stealth Mode:       🛡️  ACTIVE (Anti-Detect On)
   ▶ Status:             READY FOR PLAYWRIGHT / PUPPETEER / AGENTS
@@ -164,13 +164,20 @@ console.log(snapshot.actionMapText);
 [@5] [button] "Proceed to Payment" (selector: #btn-next)
 */
 
-// 3. Single-turn Form Filling (all input types supported)
+// 3. Multi-Modal Form Filling & Interaction
+// Supports Action IDs (@1), Playwright labels (label:Email), placeholders, or CSS:
 await agent.fillForm({
-  '@1': 'Mandeep Yadav',
-  '@2': 'mandeep@memora.company',
-  '@3': 'United States',
-  '@4': 'true'
-}, /* submit: */ true);
+  'label:First Name': 'Mandeep Yadav',
+  'label:Email Address': 'mandeep@memora.company',
+  '#country': 'United States',
+  'input[name="newsletter"]': 'true'
+}, /* submit: */ 'text=Proceed to Payment');
+
+// Act by any locator:
+agent.act('@1', 'Mandeep Yadav');                     // Ephemeral @ID (AI agents)
+agent.act('label:Email Address', 'alex@example.com');  // Playwright label (Tests)
+agent.selectOption('#country', 'India');              // Dropdown selection by label/value
+agent.act('text=Proceed to Payment');                  // Playwright text locator
 
 // 4. Observe DOM State Diff (What changed on the page?)
 const diff = agent.diff();
@@ -195,6 +202,23 @@ speculativeBranch.act('@5'); // branch operates on lightweight in-memory clone
 await agent.close();
 ```
 
+### 🎯 Universal Locators Reference
+
+Orbis provides a modular **Strategy Pattern locator engine** that accepts both AI agent tokens and resilient test automation selectors:
+
+| Locator Strategy | Syntax Pattern | Code Example | Best For |
+| :--- | :--- | :--- | :--- |
+| **Action ID (Default)** | `@<number>` | `agent.act('@4', 'alex@example.com')` | Autonomous AI agents (zero XPath hallucination, minimal tokens) |
+| **Semantic Alias** | `@<name>` | `agent.act('@email', 'alex@example.com')` | AI agent workflows resilient to new DOM insertions |
+| **Playwright Label** | `label:<text>` | `agent.act('label:Email Address', 'alex@...')` | Deterministic test suites (never breaks on layout changes) |
+| **Playwright Text** | `text=<text>` | `agent.act('text=Create Account')` | Buttons, links, and clickable text elements |
+| **Playwright Placeholder** | `placeholder:<text>` | `agent.act('placeholder:Password', '...')` | Modern web forms with placeholder hints |
+| **Playwright Role** | `role:<role>[name="..."]` | `agent.act('role:button[name="Submit"]')` | Accessible ARIA-compliant applications |
+| **Test ID** | `testid:<id>` | `agent.act('testid:submit-btn')` | Cypress, Playwright, and React `data-testid` attributes |
+| **Selenium XPath** | `//...` or `xpath:...` | `agent.act('//button[@type="submit"]')` | Enterprise Selenium test migrations |
+| **Standard CSS** | `#id`, `.class`, `[attr]` | `agent.act('#country-select')` | Standard web automation scripts |
+| **Dropdown Selection** | `agent.selectOption(target, val)` | `agent.selectOption('#country', 'India')` | Native `<select>` & dynamic ARIA listboxes |
+
 ---
 
 ## 🤖 Playwright & Puppeteer Drop-In Integration
@@ -205,7 +229,7 @@ Connect existing Playwright or Puppeteer test suites and scrapers to Orbis with 
 import { chromium } from 'playwright';
 
 // Connect over CDP directly to Orbis
-const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
+const browser = await chromium.connectOverCDP('http://localhost:9222');
 const context = browser.contexts()[0];
 const page = context.pages()[0] || await context.newPage();
 
@@ -232,7 +256,7 @@ from selenium import webdriver
 
 options = webdriver.ChromeOptions()
 driver = webdriver.Remote(
-    command_executor="http://127.0.0.1:9222",
+    command_executor="http://localhost:9222",
     options=options
 )
 
@@ -247,7 +271,7 @@ import { Builder, Browser } from 'selenium-webdriver';
 
 const driver = await new Builder()
   .forBrowser(Browser.CHROME)
-  .usingServer('http://127.0.0.1:9222')
+  .usingServer('http://localhost:9222')
   .build();
 
 await driver.get('https://example.com');
@@ -261,14 +285,14 @@ await driver.quit();
 Orbis includes a dedicated Python client for **Browser-Use**, **LangChain**, and **CrewAI**:
 
 ```bash
-pip install memora-browser
+pip install memora-orbis
 ```
 
 ```python
 from memora import OrbisAgent
 
 # 1-line connection to running Orbis daemon
-agent = OrbisAgent.connect("http://127.0.0.1:9222")
+agent = OrbisAgent.connect("http://localhost:9222")
 
 # Navigate and get token-compressed representation
 snap = agent.goto("https://news.ycombinator.com")
@@ -292,7 +316,7 @@ from memora import OrbisAgent
 from browser_use import Agent
 from langchain_openai import ChatOpenAI
 
-orbis = OrbisAgent.connect("http://127.0.0.1:9222")
+orbis = OrbisAgent.connect("http://localhost:9222")
 
 agent = Agent(
     task="Search Hacker News for latest agent announcements",
@@ -338,7 +362,7 @@ npx orbis serve --http-proxy 'http://user:pass@proxy.example.com:3128'
 npx orbis serve --http-proxy http://proxy:3128 --proxy-bearer-token 'SECRET_TOKEN'
 
 # SOCKS5 proxy with bypass list for internal hosts
-npx orbis fetch https://example.com --http-proxy socks5://127.0.0.1:1080 --proxy-bypass localhost,.internal.corp
+npx orbis fetch https://example.com --http-proxy socks5://localhost:1080 --proxy-bypass localhost,.internal.corp
 
 # Inherit standard environment variables (HTTP_PROXY / HTTPS_PROXY / NO_PROXY)
 npx orbis serve --use-env-proxy
@@ -395,7 +419,7 @@ services:
       - NODE_ENV=production
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9222/json/version"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:9222/json/version"]
       interval: 15s
       timeout: 3s
       retries: 3
@@ -471,4 +495,6 @@ This runs all 82+ unit, benchmark, proxy, selenium, robots.txt, scripts, and age
 ---
 
 ## 📜 License
-Apache-2.0 © 2026 Memora ([memora.company](https://memora.company)). All rights reserved.
+Orbis Commercial & Community Evaluation License v1.0 — see [LICENSE.md](LICENSE.md). Free for personal development, learning, testing and evaluation; production and commercial use require a commercial license (enterprise@memora.company).
+
+© 2026 Memora ([memora.company](https://memora.company)). All rights reserved.

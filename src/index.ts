@@ -15,4 +15,5 @@ export { computePageDiff } from './distiller/diff.js';
 export { saveSessionToFile, loadSessionFromFile, validateSessionData } from './engine/session.js';
 export { ChromeEngine } from './engine/chrome-engine.js';
 export { NativeEngineAdapter } from './engine/native-adapter.js';
+export * from './dom/locators.js';
 export * from './adapters/index.js';

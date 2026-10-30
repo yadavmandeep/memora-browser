@@ -12,7 +12,7 @@ export interface StagehandConfig {
  */
 export function getStagehandConfig(agentOrPort: MemoraAgent | number = 9222): StagehandConfig {
   const port = typeof agentOrPort === 'number' ? agentOrPort : (agentOrPort.browser.options.port || 9222);
-  const host = typeof agentOrPort === 'number' ? '127.0.0.1' : (agentOrPort.browser.options.host || '127.0.0.1');
+  const host = typeof agentOrPort === 'number' ? 'localhost' : (agentOrPort.browser.options.host || 'localhost');
 
   return {
     env: 'LOCAL',

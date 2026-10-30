@@ -799,6 +799,103 @@ async function run() {
       await agent.close();
     }
   });
+  console.log('\n--- 11. Universal Multi-Modal Locators (Playwright, Selenium, Semantic & Dropdowns) ---');
+
+  await test('Resolves elements via labels, placeholders, text, role, testid, XPath and semantic aliases', async () => {
+    const browser = new OrbisBrowser({ stealth: true });
+    const page = browser.newPage();
+
+    page.setContent(`
+      <!DOCTYPE html>
+      <html>
+        <head><title>Universal Locators Test</title></head>
+        <body>
+          <form id="signup-form" onsubmit="return false;">
+            <label for="user-email">Email Address</label>
+            <input type="email" id="user-email" name="email" placeholder="you@domain.com" />
+
+            <label>
+              Password
+              <input type="password" name="pwd" placeholder="Enter secure password" />
+            </label>
+
+            <select id="country-select" name="country">
+              <option value="">Select country...</option>
+              <option value="US">United States</option>
+              <option value="IN">India</option>
+              <option value="UK">United Kingdom</option>
+            </select>
+
+            <button type="button" data-testid="submit-btn" role="button">Create Account</button>
+          </form>
+        </body>
+      </html>
+    `, 'http://test/locators');
+
+    // 1. Playwright Label Locator
+    const emailByLabel = page.resolveElement('label:Email Address');
+    assert.ok(emailByLabel, 'Should resolve input by label text');
+    assert.equal(emailByLabel?.id, 'user-email');
+
+    // 2. Playwright Nested Label
+    const pwdByLabel = page.resolveElement('label:Password');
+    assert.ok(pwdByLabel, 'Should resolve nested input inside label');
+    assert.equal(pwdByLabel?.getAttribute('name'), 'pwd');
+
+    // 3. Playwright Placeholder Locator
+    const emailByPh = page.resolveElement('placeholder:you@domain.com');
+    assert.ok(emailByPh, 'Should resolve by placeholder');
+    assert.equal(emailByPh?.id, 'user-email');
+
+    // 4. Playwright TestID Locator
+    const btnByTestId = page.resolveElement('testid:submit-btn');
+    assert.ok(btnByTestId, 'Should resolve by data-testid');
+    assert.equal(btnByTestId?.tagName, 'button');
+
+    // 5. Playwright Text Locator
+    const btnByText = page.resolveElement('text=Create Account');
+    assert.ok(btnByText, 'Should resolve by text=');
+    assert.equal(btnByText?.tagName, 'button');
+
+    // 6. Playwright Role Locator
+    const btnByRole = page.resolveElement('role:button[name="Create Account"]');
+    assert.ok(btnByRole, 'Should resolve by role:button[name="..."]');
+    assert.equal(btnByRole?.tagName, 'button');
+
+    // 7. XPath Locator
+    const btnByXPath = page.resolveElement('//button[@data-testid="submit-btn"]');
+    assert.ok(btnByXPath, 'Should resolve by XPath //');
+    assert.equal(btnByXPath?.tagName, 'button');
+
+    // 8. Semantic Alias Locator (@email)
+    const emailByAlias = page.resolveElement('@email');
+    assert.ok(emailByAlias, 'Should resolve by semantic alias @email');
+    assert.equal(emailByAlias?.id, 'user-email');
+
+    // 9. Dropdown selectOption by text / value
+    const selectSuccess = page.selectDropdownOption('#country-select', 'India');
+    assert.equal(selectSuccess, true, 'Should successfully select India from dropdown');
+    const selectedOpt = page.document.querySelector('option[value="IN"]');
+    assert.ok(selectedOpt?.hasAttribute('selected'), 'India option must have selected attribute');
+
+    // 10. fillForm with multi-modal locators
+    const fillRes = await page.fillForm({
+      fields: {
+        'label:Email Address': 'alex@memora.company',
+        'placeholder:Enter secure password': 'SecretPassword123!',
+        '#country-select': 'United States'
+      },
+      submit: 'testid:submit-btn'
+    });
+    assert.equal(fillRes.success, true);
+    assert.equal(emailByLabel?.value, 'alex@memora.company');
+    assert.equal(pwdByLabel?.value, 'SecretPassword123!');
+    const usOpt = page.document.querySelector('option[value="US"]');
+    assert.ok(usOpt?.hasAttribute('selected'), 'US option must be selected');
+
+    page.close();
+    browser.close();
+  });
 }
 
 run().catch((err) => {

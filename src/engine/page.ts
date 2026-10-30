@@ -21,6 +21,7 @@ import { MarkdownOptions } from '../distiller/markdown.js';
 import { computePageDiff } from '../distiller/diff.js';
 import { saveSessionToFile, loadSessionFromFile, validateSessionData } from './session.js';
 import { DispatcherPool } from '../network/proxy.js';
+import { LocatorEngine, defaultLocatorEngine } from '../dom/locators.js';
 
 export interface NavigateOptions {
   timeoutMs?: number;
@@ -53,6 +54,7 @@ export class MemoraPage {
   // Default upper bound for the post-load settle phase of goto() (see NavigateOptions)
   public settleTimeoutMs: number = DEFAULT_SETTLE_TIMEOUT_MS;
   public lastSnapshot: SemanticPageSnapshot | null = null;
+  public locatorEngine: LocatorEngine = defaultLocatorEngine;
 
   constructor(stealth: boolean = true, network: NetworkOptions = {}, pool?: DispatcherPool) {
     this.id = crypto.randomUUID();
@@ -519,33 +521,12 @@ export class MemoraPage {
     return this.document.querySelectorAll(selector);
   }
 
-  // Resolve target element by either standard CSS selector OR agent action ID like '@1'
+  // Resolve target element using the modular LocatorEngine (Action IDs, labels, text, xpath, role, testid, css)
   public resolveElement(target: string): MemoraElement | null {
-    if (target.startsWith('@')) {
-      const snapshot = this.getSemanticSnapshot();
-      
-      // Look for direct node reference via stamped actionId
-      const findByActionId = (node: MemoraNode): MemoraElement | null => {
-        if (node instanceof MemoraElement) {
-          if ((node as any).__actionId === target) return node;
-          for (const child of node.childNodes) {
-            const found = findByActionId(child);
-            if (found) return found;
-          }
-        }
-        return null;
-      };
-
-      const direct = findByActionId(this.document);
-      if (direct) return direct;
-
-      const match = snapshot.actions.find(a => a.actionId === target);
-      if (match) {
-        return this.document.querySelector(match.selector);
-      }
-      return null;
-    }
-    return this.document.querySelector(target);
+    return this.locatorEngine.resolve(target, {
+      document: this.document,
+      getSemanticSnapshot: () => this.getSemanticSnapshot(),
+    });
   }
 
   public click(target: string): boolean {
@@ -555,9 +536,60 @@ export class MemoraPage {
     return true;
   }
 
+  public selectDropdownOption(target: string | MemoraElement, valueOrText: string): boolean {
+    const elem = typeof target === 'string' ? this.resolveElement(target) : target;
+    if (!elem) return false;
+
+    // Case 1: elem is directly a <select>
+    if (elem.tagName.toLowerCase() === 'select') {
+      const options = elem.querySelectorAll('option');
+      const valLower = valueOrText.trim().toLowerCase();
+      
+      let matchedOption = options.find(o => (o.getAttribute('value') || '').toLowerCase() === valLower);
+      if (!matchedOption) {
+        matchedOption = options.find(o => o.textContent.trim().toLowerCase() === valLower);
+      }
+      if (!matchedOption) {
+        matchedOption = options.find(o => o.textContent.trim().toLowerCase().includes(valLower));
+      }
+
+      if (matchedOption) {
+        this.selectOption(matchedOption);
+        return true;
+      }
+      return false;
+    }
+
+    // Case 2: elem is an <option>
+    if (elem.tagName.toLowerCase() === 'option') {
+      this.selectOption(elem);
+      return true;
+    }
+
+    // Case 3: elem is a custom dropdown trigger (combobox, button, div)
+    elem.click();
+    
+    // Look for options in document or within elem
+    const candidates = this.document.querySelectorAll('[role="option"], [role="menuitem"], li, .dropdown-item, .select-option');
+    const valLower = valueOrText.trim().toLowerCase();
+    const matched = candidates.find(c => c.textContent.trim().toLowerCase() === valLower || c.textContent.trim().toLowerCase().includes(valLower));
+    if (matched) {
+      matched.click();
+      return true;
+    }
+
+    return false;
+  }
+
   public type(target: string, text: string): boolean {
     const elem = this.resolveElement(target);
     if (!elem) return false;
+
+    // If target is a <select>, auto-delegate to selectDropdownOption
+    if (elem.tagName.toLowerCase() === 'select') {
+      return this.selectDropdownOption(elem, text);
+    }
+
     elem.value = text;
     elem.dispatchEvent({
       type: 'input',

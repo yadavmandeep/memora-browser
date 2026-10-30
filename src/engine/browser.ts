@@ -15,7 +15,7 @@ export class OrbisBrowser {
   constructor(options: BrowserOptions = {}) {
     this.options = {
       port: 9222,
-      host: '127.0.0.1',
+      host: 'localhost',
       stealth: true,
       ...options,
     };
