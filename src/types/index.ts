@@ -132,7 +132,7 @@ export interface CDPEvent {
 export interface NetworkOptions {
   // Proxy URL: http://, https://, socks5:// (credentials allowed as user:pass@host)
   proxy?: string;
-  // Sent as "Proxy-Authorization: Bearer <token>" (Lightpanda --proxy-bearer-token parity)
+  // Sent as "Proxy-Authorization: Bearer <token>"
   proxyBearerToken?: string;
   // Hosts that bypass the proxy, e.g. ["localhost", ".internal.corp", "10.0.0.5"]
   noProxy?: string[];

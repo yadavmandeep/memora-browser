@@ -90,7 +90,7 @@ export class NetworkFetcher {
       ? { ...getStealthHeaders() }
       : { 'User-Agent': getStealthHeaders()['User-Agent'], 'Accept': '*/*' };
     if (this.options.userAgent) headers['User-Agent'] = this.options.userAgent;
-    // CLI headers win over script-set headers (Lightpanda --http-header semantics)
+    // CLI headers win over script-set headers
     Object.assign(headers, this.extraHeaders, this.options.headers || {});
     const cookieHeader = this.getCookieHeader();
     if (cookieHeader) headers['Cookie'] = cookieHeader;

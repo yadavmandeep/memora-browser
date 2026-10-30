@@ -291,7 +291,7 @@ export class MCPServer {
               },
               {
                 name: 'memora_metadata',
-                description: 'Extract structured data and metadata from the page, including OpenGraph tags, Twitter cards, meta description, canonical URL, and JSON-LD schemas (Lightpanda parity).',
+                description: 'Extract structured data and metadata from the page, including OpenGraph tags, Twitter cards, meta description, canonical URL, and JSON-LD schemas.',
                 inputSchema: {
                   type: 'object',
                   properties: {}

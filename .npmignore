@@ -1,0 +1,29 @@
+# ==========================================
+# ORBIS BY MEMORA — NPM DISTRIBUTION FILTER
+# ==========================================
+# Strict protection: NO raw source code, internal
+# scripts, tests, or sourcemaps may be packaged.
+
+# 1. Source code & TypeScript files
+src/
+scripts/
+examples/
+tests/
+python/
+
+# 2. Build artifacts & sourcemaps (prevents decompilation/reverse-engineering)
+*.tsbuildinfo
+dist/**/*.map
+*.map
+*.tgz
+
+# 3. Git & internal dev files
+.git/
+.github/
+.gitignore
+.claude/
+.vscode/
+
+# 4. Internal architectural notes & specs
+ORBIS_BRANDING_AND_COMMERCIAL_ARCHITECTURE.md
+tsconfig.json

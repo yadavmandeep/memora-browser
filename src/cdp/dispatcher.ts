@@ -759,7 +759,7 @@ export class CDPDispatcher {
         return {};
       }
 
-      // 9. Orbis, Memora & Lightpanda Compatibility Domains
+      // 9. Orbis & Memora Compatibility Domains
       case 'LP':
       case 'Memora':
       case 'Orbis': {

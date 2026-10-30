@@ -11,8 +11,17 @@
     "memora-orbis": "./dist/cli/index.js",
     "memora-browser": "./dist/cli/index.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "INSTALLATION.md",
+    "assets"
+  ],
   "scripts": {
-    "build": "tsc",
+    "build": "node scripts/build.mjs",
+    "build:tsc": "tsc",
+    "prepack": "node scripts/build.mjs",
+    "prepublishOnly": "node scripts/build.mjs",
     "start": "tsx src/cli/index.ts",
     "dev": "tsx watch src/cli/index.ts",
     "test": "tsx tests/benchmark.ts",
@@ -26,13 +35,15 @@
     "test:all": "npm run benchmark && npm run test:proxy && npm run test:selenium && npm run test:robots && npm run test:scripts && npm run test:agents"
   },
   "keywords": [
+    "orbis",
+    "memora",
     "headless-browser",
     "cdp",
     "ai-agents",
     "web-scraping",
     "llm",
     "playwright",
-    "lightpanda",
+    "puppeteer",
     "stealth",
     "selenium",
     "webdriver",
@@ -56,11 +67,5 @@
     "selenium-webdriver": "^4.51.0",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2"
-  },
-  "files": [
-    "dist",
-    "README.md",
-    "INSTALLATION.md",
-    "python"
-  ]
+  }
 }

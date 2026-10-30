@@ -12,7 +12,7 @@ function collect(value: string, previous: string[] = []): string[] {
   return [...previous, value];
 }
 
-// Network flags shared by every command (names follow Lightpanda's CLI where one exists)
+// Network flags shared by every command
 function addNetworkOptions(cmd: Command): Command {
   return cmd
     .option('--http-proxy <url>', 'Proxy for all requests: http://, https:// or socks5:// (user:pass@ allowed for basic auth)')
@@ -207,23 +207,23 @@ function addServerOptions(cmd: Command): Command {
 }
 
 addServerOptions(program
-  .name('memora-browser')
+  .name('orbis')
   .description('Orbis by Memora — The Web, Working for You. Built for Autonomous Intelligence (orbis.memora.company)')
   .version('1.0.0'))
   .option('--eval <url>', 'Fetch a URL, distill semantic snapshot, and output to console')
   .option('--mcp', 'Run as Model Context Protocol (MCP) server over stdio for Cursor, Claude, Antigravity')
   .action(runServer);
 
-// Lightpanda parity: `memora-browser serve --protocol webdriver`
+// Server command: `orbis serve --protocol webdriver`
 addServerOptions(program
   .command('serve')
   .description('Start the automation server (same as running without a command)'))
   .action(runServer);
 
-// Lightpanda parity CLI command: `memora-browser fetch <url> --dump markdown`
+// Fetch CLI command: `orbis fetch <url> --dump markdown`
 addNetworkOptions(program
   .command('fetch <url>')
-  .description('Fetch and dump webpage in LLM-ready formats (drop-in replacement for lightpanda fetch)')
+  .description('Fetch and dump webpage in LLM-ready formats (markdown, action_map, structured_data)')
   .option('-d, --dump <format>', 'Dump format: markdown, html, structured_data, semantic_tree, action_map', 'markdown')
   .option('--dump-selector <selector>', 'Restrict output to elements matching CSS selector')
   .option('--dump-max-bytes <bytes>', 'Limit output byte length')
