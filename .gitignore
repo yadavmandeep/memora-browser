@@ -15,9 +15,12 @@ npm-debug.log*
 .env.*
 !.env.example
 
-# Python (examples/selenium-python)
+# Python (examples/selenium-python, SDK builds)
 __pycache__/
 *.py[cod]
+*.egg-info/
+python/build/
+python/dist/
 .pytest_cache/
 .venv/
 venv/

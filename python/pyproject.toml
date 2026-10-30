@@ -1,9 +1,9 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "memora-browser"
+name = "memora-orbis"
 version = "1.0.0"
 description = "Orbis by Memora — Official Python SDK for Agentic Browser (Browser-Use, LangChain, CrewAI)"
 readme = "README.md"
@@ -25,3 +25,6 @@ Homepage = "https://orbis.memora.company"
 Company = "https://memora.company"
 Repository = "https://github.com/yadavmandeep/memora-browser"
 
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["memora*", "orbis*"]
