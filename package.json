@@ -63,6 +63,7 @@
     "@types/node": "^22.13.10",
     "@types/selenium-webdriver": "^4.35.7",
     "@types/ws": "^8.5.14",
+    "javascript-obfuscator": "^5.9.0",
     "playwright-core": "^1.64.1",
     "selenium-webdriver": "^4.51.0",
     "tsx": "^4.19.3",
