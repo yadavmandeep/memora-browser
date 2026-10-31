@@ -86,20 +86,20 @@ npx @memoracompany/orbis --port 9222
 
 Output:
 ```text
-╔════════════════════════════════════════════════════════════════╗
-║                      🪐 ORBIS BY MEMORA                        ║
-║        An Agentic Browser • Built for Autonomous AI            ║
-║              Powered by Memora Browser Engine                  ║
-╚════════════════════════════════════════════════════════════════╝
-  ▶ Website & Docs:     https://orbis.memora.company
-  ▶ Parent Company:     https://memora.company
+  ⬡  ORBIS BY MEMORA  •  v0.1.0  (Agentic Browser Engine)
+  An Agentic Browser • Built for Autonomous AI • orbis.memora.company
+  ──────────────────────────────────────────────────────────────────
   ▶ Core Engine:        Memora Browser Engine (MBE)
+  ▶ Website & Docs:     https://orbis.memora.company
   ▶ CDP WebSocket:      ws://localhost:9222/devtools/browser/memora-root
   ▶ Discovery Endpoint: http://localhost:9222/json/version
-  ▶ Agent Snapshot:     http://localhost:9222/orbis/snapshot
+  ▶ Agent Snapshot:     http://localhost:9222/orbis/snapshot (or /memora/snapshot)
   ▶ Memory Footprint:   ~83.4 MB (Chromium uses ~350MB+)
+  ▶ Proxy:              Direct • Cloud Proxies: orbis.memora.company/cloud
   ▶ Stealth Mode:       🛡️  ACTIVE (Anti-Detect On)
+  ▶ License / Tier:     ⚡ COMMUNITY EVALUATION (Free For Devs)
   ▶ Status:             READY FOR PLAYWRIGHT / PUPPETEER / AGENTS
+  ──────────────────────────────────────────────────────────────────
 ```
 
 ### 2. One-Shot Instant Distillation (CLI):

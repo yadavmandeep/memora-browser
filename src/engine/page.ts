@@ -917,7 +917,7 @@ export function collectFormData(form: MemoraElement, doc: MemoraDocument, submit
 }
 
 /**
- * 🪐 OrbisPage — Active Page context in Orbis Browser
+ * ⬡ OrbisPage — Active Page context in Orbis Browser
  */
 export const OrbisPage = MemoraPage;
 export type OrbisPage = MemoraPage;

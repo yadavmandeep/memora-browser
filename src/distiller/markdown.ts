@@ -1,4 +1,5 @@
 import { MemoraDocument, MemoraElement, MemoraNode, MemoraTextNode } from '../dom/node.js';
+import { cleanUrlForLLM } from './semantic-tree.js';
 
 export interface MarkdownOptions {
   focusSelector?: string;
@@ -54,7 +55,8 @@ export function renderInline(node: MemoraNode, options?: MarkdownOptions): strin
         const href = node.getAttribute('href');
         const text = renderInlineChildren(node, options).trim();
         if (!text) return '';
-        return href ? `[${text}](${href})` : text;
+        const cleanHref = href ? cleanUrlForLLM(href) : undefined;
+        return cleanHref ? `[${text}](${cleanHref})` : text;
       }
       case 'strong':
       case 'b': {

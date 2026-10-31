@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import { OrbisBrowser } from '../engine/browser.js';
 import { NetworkOptions } from '../types/index.js';
 import { redactProxyUrl, validateProxyUrl } from '../network/proxy.js';
+import { renderOrbisBanner } from './banner.js';
 
 // Show deprecation warning when legacy binary name is invoked
 if (process.argv[1] && (process.argv[1].endsWith('memora-browser') || process.argv[1].endsWith('memora-browser.js'))) {
@@ -65,7 +66,7 @@ function describeProxy(network: NetworkOptions): string {
   if (network.proxy) {
     return redactProxyUrl(network.proxy) + (network.proxyBearerToken ? ' (bearer auth)' : '');
   }
-  return 'Orbis Cloud Residential Proxies (Coming Soon: orbis.memora.company/cloud)';
+  return 'Direct • Cloud Proxies: orbis.memora.company/cloud';
 }
 
 function fail(message: string): never {
@@ -136,22 +137,13 @@ async function runServer(options: any): Promise<void> {
       }
       fail(`Could not start WebDriver server on ${host}:${port}: ${e.message}`);
     }
-    console.log(`
-╔════════════════════════════════════════════════════════════════╗
-║             🪐 ORBIS BY MEMORA — WEBDRIVER MODE                ║
-║          W3C WebDriver for Selenium, WebdriverIO, etc.         ║
-╚════════════════════════════════════════════════════════════════╝
-  ▶ Website & Docs:     https://orbis.memora.company
-  ▶ Parent Company:     https://memora.company
-  ▶ Core Engine:        Memora Browser Engine (MBE)
-  ▶ WebDriver URL:      http://${host}:${port}
-  ▶ Status:             http://${host}:${port}/status
-  ▶ Max Sessions:       ${options.maxSessions}
-  ▶ Proxy:              ${describeProxy(network)}
-  ▶ Stealth Mode:       ${stealth ? '🛡️  ACTIVE' : 'OFF'}
-  ▶ Selenium (Python):  webdriver.Remote("http://${host}:${port}", options=webdriver.ChromeOptions())
-══════════════════════════════════════════════════════════════════
-    `);
+    console.log(renderOrbisBanner('webdriver', {
+      host,
+      port,
+      stealth,
+      maxSessions: options.maxSessions,
+      proxy: describeProxy(network),
+    }));
     const shutdown = async () => {
       await server.stop();
       process.exit(0);
@@ -204,25 +196,13 @@ async function runServer(options: any): Promise<void> {
 
   const memUsage = (process.memoryUsage().rss / 1024 / 1024).toFixed(1);
 
-  console.log(`
-╔════════════════════════════════════════════════════════════════╗
-║                      🪐 ORBIS BY MEMORA                        ║
-║        An Agentic Browser • Built for Autonomous AI            ║
-║              Powered by Memora Browser Engine                  ║
-╚════════════════════════════════════════════════════════════════╝
-  ▶ Website & Docs:     https://orbis.memora.company
-  ▶ Parent Company:     https://memora.company
-  ▶ Core Engine:        Memora Browser Engine (MBE)
-  ▶ CDP WebSocket:      ws://${host}:${port}/devtools/browser/memora-root
-  ▶ Discovery Endpoint: http://${host}:${port}/json/version
-  ▶ Agent Snapshot:     http://${host}:${port}/orbis/snapshot (or /memora/snapshot)
-  ▶ Memory Footprint:   ~${memUsage} MB (Chromium uses ~350MB+)
-  ▶ Proxy:              ${describeProxy(network)}
-  ▶ Stealth Mode:       ${stealth ? '🛡️  ACTIVE (Anti-Detect On)' : 'OFF'}
-  ▶ License / Tier:     ⚡ COMMUNITY EVALUATION (Free For Devs)
-  ▶ Status:             READY FOR PLAYWRIGHT / PUPPETEER / AGENTS
-══════════════════════════════════════════════════════════════════
-    `);
+  console.log(renderOrbisBanner('cdp', {
+    host,
+    port,
+    stealth,
+    memUsage,
+    proxy: describeProxy(network),
+  }));
 
   // Handle graceful shutdown
   const shutdown = async () => {
@@ -250,6 +230,7 @@ addServerOptions(program
   .name('orbis')
   .description('Orbis by Memora — The Web, Working for You. Built for Autonomous Intelligence (orbis.memora.company)')
   .version('0.1.0'))
+  .addHelpText('before', () => renderOrbisBanner('help'))
   .option('--eval <url>', 'Fetch a URL, distill semantic snapshot, and output to console')
   .option('--mcp', 'Run as Model Context Protocol (MCP) server over stdio for Cursor, Claude, Antigravity')
   .action(runServer);

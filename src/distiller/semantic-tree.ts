@@ -11,6 +11,51 @@ function isElementHidden(node: MemoraElement): boolean {
   return false;
 }
 
+export function cleanUrlForLLM(href?: string): string | undefined {
+  if (!href) return undefined;
+  if (href.startsWith('javascript:')) return 'javascript:void(0)';
+  try {
+    const u = new URL(href, 'https://memora-distill.local');
+    // If it is an ad redirect wrapper, unwrap the target url if present
+    if (u.pathname.includes('/clk') || u.pathname.includes('/sspa/click') || u.pathname.includes('/adclick')) {
+      const target = u.searchParams.get('url') || u.searchParams.get('r');
+      if (target) {
+        return cleanUrlForLLM(target);
+      }
+    }
+    // Strip heavy tracking tokens, affiliate hashes, session tracking
+    const trackingParams = [
+      'ref', 'ref_', 'pf_rd_r', 'pf_rd_p', 'pd_rd_r', 'pd_rd_w', 'pd_rd_wg',
+      'qid', 'spc', 'sp_csd', 'dib', 'dib_tag', 'aref', 'content-id', 'p',
+      'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
+      'fbclid', 'gclid', 'msclkid', 'dclid'
+    ];
+    for (const p of trackingParams) {
+      u.searchParams.delete(p);
+    }
+    let clean = u.pathname;
+    if (u.search && u.search.length > 1) {
+      clean += u.search;
+    }
+    // Truncate if still excessively long
+    return clean.length > 80 ? clean.slice(0, 77) + '...' : clean;
+  } catch {
+    return href.length > 80 ? href.slice(0, 77) + '...' : href;
+  }
+}
+
+// Common noisy layout/boilerplate elements to automatically skip in Action Map
+const DEFAULT_NOISE_SELECTORS = [
+  '#nav-assist-skip-to-main-content',
+  '#nav-assist-skip-to-results',
+  '#nav-assist-skip-to-filters',
+  '.skip-to-content',
+  '.skip-link',
+  '#cookie-banner',
+  '.cookie-banner',
+  '#onetrust-banner-sdk'
+];
+
 function hasHiddenAncestor(node: MemoraElement): boolean {
   let cur: MemoraElement | null = node.parentNode;
   while (cur && cur.nodeType === 1) {
@@ -171,7 +216,8 @@ export function extractSemanticSnapshot(
       }
 
       // Check excluded selectors
-      if (isElementExcluded(node, options.excludeSelectors)) {
+      const effectiveExclude = [...(options.excludeSelectors || []), ...DEFAULT_NOISE_SELECTORS];
+      if (isElementExcluded(node, effectiveExclude)) {
         return;
       }
 
@@ -241,23 +287,40 @@ export function extractSemanticSnapshot(
 
   walk(rootNode);
 
-  // Build clean action map string for LLM
-  const actionLines = actions.map(act => {
+  // Intelligent Capping: If page has hundreds of actions (like massive catalogs),
+  // cap Action Map to maxActions (default: 80) to preserve agent context window
+  const maxActions = options.maxActions ?? 80;
+  const totalFound = actions.length;
+  const visibleActions = actions.slice(0, maxActions);
+
+  // Build clean, token-condensed action map string for LLM
+  const actionLines = visibleActions.map(act => {
     let details = '';
     if (act.type) details += ` type="${act.type}"`;
     if (act.placeholder) details += ` placeholder="${act.placeholder}"`;
     if (act.value) details += ` value="${act.value}"`;
-    if (act.href) details += ` href="${act.href}"`;
+    if (act.href) {
+      const cleanHref = cleanUrlForLLM(act.href);
+      if (cleanHref) details += ` href="${cleanHref}"`;
+    }
     if (act.disabled) details += ` [DISABLED]`;
     if (act.checked) details += ` [CHECKED]`;
     if (act.expanded) details += ` [EXPANDED]`;
     if (act.selected) details += ` [SELECTED]`;
 
-    return `[${act.actionId}] [${act.role}] "${act.text}"${details} (selector: ${act.selector})`;
+    // Only include selector if compactSelectors is explicitly false (normally agent only needs actionId @1, @2)
+    if (options.compactSelectors === false) {
+      return `[${act.actionId}] [${act.role}] "${act.text}"${details} (selector: ${act.selector})`;
+    }
+    return `[${act.actionId}] [${act.role}] "${act.text}"${details}`;
   });
 
+  if (totalFound > maxActions) {
+    actionLines.push(`... [${totalFound - maxActions} lower-priority interactive elements omitted for token savings. Use focus="selector" to zoom in.]`);
+  }
+
   const actionMapText = actions.length > 0
-    ? `=== INTERACTIVE ACTION MAP (${actions.length} elements) ===\n` + actionLines.join('\n')
+    ? `=== INTERACTIVE ACTION MAP (${actions.length} elements${totalFound > maxActions ? `, showing top ${maxActions}` : ''}) ===\n` + actionLines.join('\n')
     : `=== NO INTERACTIVE ELEMENTS FOUND ===`;
 
   const markdown = convertToMarkdown(doc, {

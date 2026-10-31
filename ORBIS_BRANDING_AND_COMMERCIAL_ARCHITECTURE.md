@@ -1,4 +1,4 @@
-# 🪐 ORBIS BY MEMORA
+# <img src="orbis-logo.svg" alt="Orbis Logo" width="32" height="32" align="center" /> ORBIS BY MEMORA
 ### *The Web, Working for You.*
 > **An Agentic Browser. Built for Autonomous Intelligence.**  
 > *Explore. Understand. Execute.*

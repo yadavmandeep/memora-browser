@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Orbis by Memora — The Web, Working for You. Agent-native, ultra-lightweight headless browser engine with CDP, W3C WebDriver, semantic AXTree distillation, and built-in stealth",
   "homepage": "https://orbis.memora.company",
+  "icon": "orbis-logo.svg",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -13,6 +14,7 @@
   },
   "files": [
     "dist",
+    "orbis-logo.svg",
     "README.md",
     "INSTALLATION.md",
     "LICENSE.md"

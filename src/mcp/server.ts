@@ -67,7 +67,7 @@ export class MCPServer {
         const message = JSON.parse(trimmed);
         const response = await this.handleMessage(message);
         if (response) {
-          process.stdout.write(JSON.stringify(response) + '\n');
+          process.stdout.write(JSON.stringify(response) + '\\n');
         }
       } catch (err: any) {
         const errResp = {
@@ -78,7 +78,7 @@ export class MCPServer {
             message: 'Parse error: ' + err.message
           }
         };
-        process.stdout.write(JSON.stringify(errResp) + '\n');
+        process.stdout.write(JSON.stringify(errResp) + '\\n');
       }
     });
 
@@ -136,6 +136,7 @@ export class MCPServer {
             tools: [
               {
                 name: 'memora_browse',
+                annotations: { destructiveHint: false, idempotentHint: true },
                 description: 'Orbis by Memora (https://orbis.memora.company). Fast, token-condensed headless web browser for AI coding agents. Loads URL, distills page into clean Markdown and interactive Action Map (@1, @2) with 95% token savings. Supports focus and exclude filters.',
                 inputSchema: {
                   type: 'object',
@@ -143,13 +144,16 @@ export class MCPServer {
                     url: { type: 'string', description: 'The web URL to browse (e.g. localhost app, docs, dashboard, issue tracker)' },
                     timeout: { type: 'number', description: 'Timeout in milliseconds (default: 20000)' },
                     focus: { type: 'string', description: 'Optional CSS selector to focus distillation on (e.g. "main", "article", "#content")' },
-                    exclude: { type: 'array', items: { type: 'string' }, description: 'Optional list of CSS selectors to strip (e.g. ["nav", "footer", ".ad", ".cookie-banner"])' }
+                    exclude: { type: 'array', items: { type: 'string' }, description: 'Optional list of CSS selectors to strip (e.g. ["nav", "footer", ".ad", ".cookie-banner"])' },
+                    maxActions: { type: 'number', description: 'Max interactive actions to return in Action Map (default: 80, prevents token blowup on huge catalogs)' },
+                    compactSelectors: { type: 'boolean', description: 'Whether to omit verbose CSS selectors from Action Map since agents interact via @1, @2 IDs (default: true)' }
                   },
                   required: ['url']
                 }
               },
               {
                 name: 'memora_act',
+                annotations: { destructiveHint: false, idempotentHint: true },
                 description: 'Interact with an element on the loaded page using action ID (@1, @2) or CSS selector. Simulates human click or text input with full event triggering.',
                 inputSchema: {
                   type: 'object',
@@ -163,6 +167,7 @@ export class MCPServer {
               },
               {
                 name: 'memora_diff',
+                annotations: { destructiveHint: false, idempotentHint: true },
                 description: 'Inspect state changes (added, removed, mutated elements, URL changes) since the last page action or snapshot. Massive token savings for multi-turn agent loops.',
                 inputSchema: {
                   type: 'object',
@@ -171,6 +176,7 @@ export class MCPServer {
               },
               {
                 name: 'memora_fill_form',
+                annotations: { destructiveHint: false, idempotentHint: true },
                 description: 'Fill multiple form inputs and optionally click submit in a single turn. Accepts a key-value mapping of action IDs (e.g. {"@1": "john@doe.com", "@2": "pass"}) or selectors to values, and an optional submitActionId (e.g. "@3").',
                 inputSchema: {
                   type: 'object',
@@ -190,6 +196,7 @@ export class MCPServer {
               },
               {
                 name: 'memora_session',
+                annotations: { destructiveHint: false, idempotentHint: true },
                 description: 'Save or load browser session data (cookies, localStorage, sessionStorage) to/from a local JSON file for persistent authentication.',
                 inputSchema: {
                   type: 'object',
@@ -202,6 +209,7 @@ export class MCPServer {
               },
               {
                 name: 'memora_inspect',
+                annotations: { destructiveHint: false, idempotentHint: true },
                 description: 'Inspect current page DOM state, title, and all interactive action items (@1, @2, @3).',
                 inputSchema: {
                   type: 'object',
@@ -212,6 +220,7 @@ export class MCPServer {
               },
               {
                 name: 'memora_extract',
+                annotations: { destructiveHint: false, idempotentHint: true },
                 description: 'Extract structured data from the page matching a CSS selector (e.g. "table tr", "button", "a", ".card"). Can extract text or specific attributes like "href", "src", "value".',
                 inputSchema: {
                   type: 'object',
@@ -225,6 +234,7 @@ export class MCPServer {
               },
               {
                 name: 'memora_storage',
+                annotations: { destructiveHint: false, idempotentHint: true },
                 description: 'Read, write, list, or clear localStorage and sessionStorage in the browser. Perfect for pre-authenticating by setting JWT tokens or inspecting user session state.',
                 inputSchema: {
                   type: 'object',
@@ -239,6 +249,7 @@ export class MCPServer {
               },
               {
                 name: 'memora_cookies',
+                annotations: { destructiveHint: false, idempotentHint: true },
                 description: 'Inspect, set, or clear session and HTTP cookies for authentication testing.',
                 inputSchema: {
                   type: 'object',
@@ -252,6 +263,7 @@ export class MCPServer {
               },
               {
                 name: 'memora_console',
+                annotations: { destructiveHint: false, idempotentHint: true },
                 description: 'Inspect runtime console logs, warnings, and errors emitted by JavaScript on the page.',
                 inputSchema: {
                   type: 'object',
@@ -262,6 +274,7 @@ export class MCPServer {
               },
               {
                 name: 'memora_reload',
+                annotations: { destructiveHint: false, idempotentHint: true },
                 description: 'Reload the active page and re-distill content and action items.',
                 inputSchema: {
                   type: 'object',
@@ -270,6 +283,7 @@ export class MCPServer {
               },
               {
                 name: 'memora_html',
+                annotations: { destructiveHint: false, idempotentHint: true },
                 description: 'Get raw HTML of the current page or a specific sub-tree matching a CSS selector.',
                 inputSchema: {
                   type: 'object',
@@ -280,6 +294,7 @@ export class MCPServer {
               },
               {
                 name: 'memora_eval',
+                annotations: { destructiveHint: false, idempotentHint: true },
                 description: 'Execute arbitrary JavaScript code directly inside the live page context.',
                 inputSchema: {
                   type: 'object',
@@ -291,6 +306,7 @@ export class MCPServer {
               },
               {
                 name: 'memora_metadata',
+                annotations: { destructiveHint: false, idempotentHint: true },
                 description: 'Extract structured data and metadata from the page, including OpenGraph tags, Twitter cards, meta description, canonical URL, and JSON-LD schemas.',
                 inputSchema: {
                   type: 'object',
@@ -299,6 +315,7 @@ export class MCPServer {
               },
               {
                 name: 'memora_fork',
+                annotations: { destructiveHint: false, idempotentHint: true },
                 description: 'Speculatively fork (clone) the current session into a new tab to test alternative workflows without refetching.',
                 inputSchema: {
                   type: 'object',
@@ -362,14 +379,16 @@ export class MCPServer {
     const canonicalName = name.startsWith('orbis_') ? 'memora_' + name.slice(6) : name;
     switch (canonicalName) {
       case 'memora_browse': {
-        const { url, timeout, focus, exclude } = args;
+        const { url, timeout, focus, exclude, maxActions, compactSelectors } = args;
         const t0 = performance.now();
         const resp = await this.engine.goto(url, timeout || 20000);
         const duration = (performance.now() - t0).toFixed(1);
 
         const snapshot = await this.engine.getSemanticSnapshot({
           focusSelector: focus,
-          excludeSelectors: exclude
+          excludeSelectors: exclude,
+          maxActions: maxActions ?? 80,
+          compactSelectors: compactSelectors ?? true
         });
         const markdown = await this.engine.getMarkdown({
           focusSelector: focus,
@@ -391,7 +410,10 @@ export class MCPServer {
       case 'memora_act': {
         const { actionId, type, text } = args;
         const res = await this.engine.act(actionId, type, text);
-        const snapshot = await this.engine.getSemanticSnapshot();
+        const snapshot = await this.engine.getSemanticSnapshot({
+          maxActions: 50,
+          compactSelectors: true
+        });
         return [
           `Successfully performed "${type}" on ${actionId}.`,
           `Current URL: ${res.url}`,
@@ -409,7 +431,10 @@ export class MCPServer {
       case 'memora_fill_form': {
         const { fields, submitActionId } = args;
         const res = await this.engine.fillForm({ fields, submitActionId });
-        const snapshot = await this.engine.getSemanticSnapshot();
+        const snapshot = await this.engine.getSemanticSnapshot({
+          maxActions: 50,
+          compactSelectors: true
+        });
         return [
           `Form fill completed! Filled ${res.fieldsFilled} field(s)${res.submitted ? ', submitted form' : ''}.`,
           `Current URL: ${res.url}`,
@@ -434,7 +459,9 @@ export class MCPServer {
 
       case 'memora_inspect': {
         const snapshot = await this.engine.getSemanticSnapshot({
-          focusSelector: args.focus
+          focusSelector: args.focus,
+          maxActions: 60,
+          compactSelectors: true
         });
         return [
           `Page Title: ${snapshot.title}`,
@@ -477,7 +504,9 @@ export class MCPServer {
         const resp = await this.engine.reload();
         const duration = (performance.now() - t0).toFixed(1);
         const snapshot = await this.engine.getSemanticSnapshot();
-        return `Page reloaded in ${duration}ms (HTTP ${resp.status}). Title: "${snapshot.title}". Active elements: ${snapshot.interactiveCount}\n\n${snapshot.actionMapText}`;
+        return `Page reloaded in ${duration}ms (HTTP ${resp.status}). Title: "${snapshot.title}". Active elements: ${snapshot.interactiveCount}
+
+${snapshot.actionMapText}`;
       }
 
       case 'memora_html': {

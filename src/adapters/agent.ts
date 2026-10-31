@@ -17,7 +17,7 @@ export interface OrbisAgentOptions extends BrowserOptions {
 export type MemoraAgentOptions = OrbisAgentOptions;
 
 /**
- * 🪐 OrbisAgent — Autonomous Task Runner & High-Velocity Agent Controller
+ * ⬡ OrbisAgent — Autonomous Task Runner & High-Velocity Agent Controller
  * Official Agent SDK for Orbis by Memora (https://orbis.memora.company).
  * Provides seamless 1-line automation for LLM agents (LangChain, Stagehand, Browser-Use, etc.)
  */

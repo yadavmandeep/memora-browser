@@ -3,7 +3,7 @@ import { BrowserOptions } from '../types/index.js';
 import { DispatcherPool } from '../network/proxy.js';
 
 /**
- * 🪐 OrbisBrowser — Next-Gen Agentic Browser Engine (https://orbis.memora.company)
+ * ⬡ OrbisBrowser — Next-Gen Agentic Browser Engine (https://orbis.memora.company)
  * Powered by Memora Browser Engine (MBE) with native CDP, W3C WebDriver, and anti-detect stealth.
  */
 export class OrbisBrowser {

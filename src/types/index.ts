@@ -38,6 +38,8 @@ export interface SnapshotOptions {
   focusSelector?: string;
   excludeSelectors?: string[];
   filterHidden?: boolean;
+  maxActions?: number;
+  compactSelectors?: boolean;
 }
 
 export interface SemanticPageSnapshot {
