@@ -1,4 +1,4 @@
-﻿# <img src="https://orbis.memora.company/orbis-logo.svg" alt="Orbis Logo" width="36" height="36" align="center" /> Orbis by Memora â€” Installation & Setup Guide
+# <img src="https://orbis.memora.company/orbis-logo.svg" alt="Orbis Logo" width="36" height="36" align="center" /> Orbis by Memora â€” Installation & Setup Guide
 ### *The Web, Working for You. Built for Autonomous Intelligence.*
 > ðŸŒ **Product Portal:** [orbis.memora.company](https://orbis.memora.company) â€¢ **Company:** [memora.company](https://memora.company)  
 > âš¡ **Core Engine:** Memora Browser Engine (MBE) (`memora-orbis`)  
@@ -322,4 +322,4 @@ Memora connects conversations, code, tickets, documents, and meetings across Sla
 - **Company Website:** [https://memora.company](https://memora.company)
 - **Product Portal:** [https://orbis.memora.company](https://orbis.memora.company)
 
-*Need help or feature requests? Open an issue on [GitHub](https://github.com/memora-company/orbis).*
+*Need help or feature requests? Open an issue on [GitHub](https://github.com/memora-company/memora-orbis).*
