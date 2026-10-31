@@ -72,7 +72,11 @@ await minifyAllJs('dist');
 // 5. Military-grade string encryption & variable obfuscation on core entry bundles
 console.log('🔒 [Build] Step 4: Applying military-grade string encryption & hexadecimal obfuscation...');
 function deepObfuscate(filePath) {
-  const code = fs.readFileSync(filePath, 'utf8');
+  const normalized = path.resolve(filePath);
+  if (!fs.existsSync(normalized)) {
+    throw new Error(`Cannot obfuscate missing file: ${normalized}`);
+  }
+  const code = fs.readFileSync(normalized, 'utf8');
   const obfuscated = JavaScriptObfuscator.obfuscate(code, {
     compact: true,
     controlFlowFlattening: false,
@@ -85,10 +89,11 @@ function deepObfuscate(filePath) {
     splitStringsChunkLength: 10,
     identifierNamesGenerator: 'hexadecimal'
   });
-  fs.writeFileSync(filePath, obfuscated.getObfuscatedCode(), 'utf8');
+  fs.mkdirSync(path.dirname(normalized), { recursive: true });
+  fs.writeFileSync(normalized, obfuscated.getObfuscatedCode(), 'utf8');
 }
 
-deepObfuscate('dist/cli/index.js');
-deepObfuscate('dist/index.js');
+deepObfuscate(path.join('dist', 'cli', 'index.js'));
+deepObfuscate(path.join('dist', 'index.js'));
 
 console.log('✅ [Build] Production build complete. 100% encrypted, obfuscated, and protected from reverse engineering.');

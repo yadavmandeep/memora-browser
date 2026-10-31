@@ -23,7 +23,6 @@
     "build": "node scripts/build.mjs",
     "build:tsc": "tsc",
     "prepack": "node scripts/build.mjs",
-    "prepublishOnly": "node scripts/build.mjs",
     "start": "tsx src/cli/index.ts",
     "dev": "tsx watch src/cli/index.ts",
     "test": "tsx tests/benchmark.ts",
