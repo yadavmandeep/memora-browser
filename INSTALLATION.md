@@ -1,29 +1,29 @@
-# <img src="https://orbis.memora.company/orbis-logo.svg" alt="Orbis Logo" width="36" height="36" align="center" /> Orbis by Memora — Installation & Setup Guide
+﻿# <img src="https://orbis.memora.company/orbis-logo.svg" alt="Orbis Logo" width="36" height="36" align="center" /> Orbis by Memora â€” Installation & Setup Guide
 ### *The Web, Working for You. Built for Autonomous Intelligence.*
-> 🌐 **Product Portal:** [orbis.memora.company](https://orbis.memora.company) • **Company:** [memora.company](https://memora.company)  
-> ⚡ **Core Engine:** Memora Browser Engine (MBE) (`memora-orbis`)  
+> ðŸŒ **Product Portal:** [orbis.memora.company](https://orbis.memora.company) â€¢ **Company:** [memora.company](https://memora.company)  
+> âš¡ **Core Engine:** Memora Browser Engine (MBE) (`memora-orbis`)  
 > *< 15ms Startup | 8.5x Less RAM than Chromium | Up to 95% LLM Token Savings*
 
 ---
 
-## 📦 Distribution Architecture (Closed-Source & Pre-Compiled)
+## ðŸ“¦ Distribution Architecture (Closed-Source & Pre-Compiled)
 
 Orbis by Memora is distributed through npm as a **pre-compiled, fully bundled, and minified production release (`memora-orbis`)**:
-- 🛡️ **Intellectual Property Protection:** Raw TypeScript sources (`src/`), internal test suites (`tests/`), and sourcemap debug traces are completely stripped from distribution tarballs.
-- ⚡ **Zero Compilation Overhead:** End users and CI/CD pipelines never require `tsc`, build toolchains, or local C++ compilers.
-- 🚀 **Universal CLI Commands:** Installing `memora-orbis` registers three aliased commands: `orbis`, `memora-orbis`, and `memora-browser`.
+- ðŸ›¡ï¸ **Intellectual Property Protection:** Raw TypeScript sources (`src/`), internal test suites (`tests/`), and sourcemap debug traces are completely stripped from distribution tarballs.
+- âš¡ **Zero Compilation Overhead:** End users and CI/CD pipelines never require `tsc`, build toolchains, or local C++ compilers.
+- ðŸš€ **Universal CLI Commands:** Installing `memora-orbis` registers three aliased commands: `orbis`, `memora-orbis`, and `memora-browser`.
 
 ---
 
-## ⚡ 30-Second Stack Selector
+## âš¡ 30-Second Stack Selector
 
 Choose how you want to use Orbis:
 
 | If you are using... | Jump to Section | Setup Method |
 | :--- | :--- | :--- |
 | **Cursor, Claude Desktop, Antigravity** | [1. AI Coding Assistants (MCP)](#1-ai-coding-assistants-mcp-setup) | No install needed (`npx`) |
-| **Global Terminal CLI** | [2. Global CLI Installation](#2-global-cli-installation) | `npm install -g @memoracompany/orbis` |
-| **TypeScript / Node.js Agents** | [3. TypeScript / Node.js Developers](#3-typescript--nodejs-developers) | `npm install @memoracompany/orbis` |
+| **Global Terminal CLI** | [2. Global CLI Installation](#2-global-cli-installation) | `npm install -g @memoracompany/memora-orbis` |
+| **TypeScript / Node.js Agents** | [3. TypeScript / Node.js Developers](#3-typescript--nodejs-developers) | `npm install @memoracompany/memora-orbis` |
 | **Python Agents (Browser-Use, LangChain, CrewAI)** | [4. Python AI Developers](#4-python-ai-developers-pip) | `pip install memora-orbis` |
 | **Playwright / Puppeteer** | [5. Playwright & Puppeteer Users](#5-playwright--puppeteer-drop-in) | Drop-in CDP (`ws://...`) |
 | **Selenium / W3C WebDriver** | [6. Selenium (W3C WebDriver)](#6-selenium-w3c-webdriver-classic) | No chromedriver needed |
@@ -51,15 +51,15 @@ Orbis acts as a high-speed **Model Context Protocol (MCP)** server over stdio. Y
      }
    }
    ```
-3. Restart Claude Desktop. The hammer icon 🔨 will expose Orbis tools: `orbis_browse`, `orbis_act`, `orbis_diff`, `orbis_fill_form`, and `orbis_session`.
+3. Restart Claude Desktop. The hammer icon ðŸ”¨ will expose Orbis tools: `orbis_browse`, `orbis_act`, `orbis_diff`, `orbis_fill_form`, and `orbis_session`.
 
 ### B. Cursor IDE
 1. Open Cursor Settings (`Ctrl + ,` or `Cmd + ,`).
-2. Navigate to **Features** ➔ **MCP Servers** ➔ Click **Add New MCP Server**.
+2. Navigate to **Features** âž” **MCP Servers** âž” Click **Add New MCP Server**.
 3. Fill in:
    - **Name:** `orbis`
    - **Type:** `command`
-   - **Command:** `npx -y @memoracompany/orbis --mcp`
+   - **Command:** `npx -y @memoracompany/memora-orbis --mcp`
 4. Click **Save**. Composer and Chat can now browse documentation, search live sites, and interact with web applications at 10x lower token cost.
 
 ### C. Google Antigravity / Windsurf
@@ -82,7 +82,7 @@ Add to your project's `.mcp.json` or global config:
 To run Orbis commands from any terminal without re-downloading via `npx`:
 
 ```bash
-npm install -g @memoracompany/orbis
+npm install -g @memoracompany/memora-orbis
 ```
 
 Once installed globally, you have instant access to:
@@ -104,12 +104,12 @@ orbis --port 9222
 
 ### Step 1: Install Package
 ```bash
-npm install @memoracompany/orbis
+npm install @memoracompany/memora-orbis
 ```
 
 ### Step 2: 1-Line Autonomous Agent Loop (`OrbisAgent`)
 ```typescript
-import { OrbisAgent } from '@memoracompany/orbis';
+import { OrbisAgent } from '@memoracompany/memora-orbis';
 
 // Launch standalone browser daemon with stealth and CDP on port 9222
 const agent = await OrbisAgent.launch({ stealth: true, cdpPort: 9222 });
@@ -141,7 +141,7 @@ agent.saveSession('./sessions/auth-state.json');
 await agent.close();
 ```
 
-#### 🎯 Universal Locators Reference
+#### ðŸŽ¯ Universal Locators Reference
 
 Orbis provides a modular **Strategy Pattern locator engine** that works across all agent commands:
 
@@ -160,7 +160,7 @@ Orbis provides a modular **Strategy Pattern locator engine** that works across a
 
 ### Integration with Stagehand
 ```typescript
-import { OrbisAgent, getStagehandConfig } from '@memoracompany/orbis';
+import { OrbisAgent, getStagehandConfig } from '@memoracompany/memora-orbis';
 import { Stagehand } from '@browserbasehq/stagehand';
 
 const agent = await OrbisAgent.launch({ cdpPort: 9222 });
@@ -172,7 +172,7 @@ await stagehand.page.goto('https://example.com');
 
 ### Integration with LangChain
 ```typescript
-import { OrbisAgent, createOrbisLangChainTools } from '@memoracompany/orbis';
+import { OrbisAgent, createOrbisLangChainTools } from '@memoracompany/memora-orbis';
 
 const agent = await OrbisAgent.launch();
 const tools = createOrbisLangChainTools(agent);
@@ -188,7 +188,7 @@ Ideal for **Browser-Use**, **LangChain**, **CrewAI**, **AutoGen**, and Python LL
 ### Step 1: Start the Orbis Daemon
 In your terminal (or run as background service):
 ```bash
-npx @memoracompany/orbis --port 9222
+npx @memoracompany/memora-orbis --port 9222
 ```
 
 ### Step 2: Install Python SDK
@@ -248,7 +248,7 @@ Orbis speaks the raw Chrome DevTools Protocol (CDP). Existing Playwright and Pup
 
 ### Step 1: Start Orbis CDP Server
 ```bash
-npx @memoracompany/orbis --port 9222
+npx @memoracompany/memora-orbis --port 9222
 ```
 
 ### Step 2: Connect Playwright
@@ -273,7 +273,7 @@ Orbis speaks W3C WebDriver natively, meaning **no chromedriver binary is require
 
 ### Step 1: Launch WebDriver Server
 ```bash
-npx @memoracompany/orbis serve --protocol webdriver --port 9222
+npx @memoracompany/memora-orbis serve --protocol webdriver --port 9222
 ```
 
 ### Step 2: Connect Selenium (Python)
@@ -291,7 +291,7 @@ print(driver.title)
 driver.quit()
 ```
 
-## ❓ Troubleshooting & FAQs
+## â“ Troubleshooting & FAQs
 
 ### Q: Does Orbis require Chrome to be installed?
 **A:** No! By default, Orbis runs on its pure TypeScript Native Engine with an in-memory V8 sandbox (<15ms startup, zero GPU). If a site requires heavy GPU WebGL or Chrome-specific extensions, simply pass `--engine chrome` to use system Chromium.
@@ -313,7 +313,7 @@ If you see the distilled Markdown and Action Map output in < 20ms, your installa
 
 ---
 
-## 🏢 About Memora
+## ðŸ¢ About Memora
 
 **[Memora](https://memora.company/)** is an AI organizational memory and knowledge management platform that stops teams from losing what they know.
 

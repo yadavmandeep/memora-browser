@@ -80,7 +80,7 @@ You don't even need to install it globally. Run directly via `npx`:
 
 ### 1. Launch standalone CDP Server:
 ```bash
-npx @memoracompany/orbis --port 9222
+npx @memoracompany/memora-orbis --port 9222
 # stealth is on by default; pass --no-stealth to turn it off
 ```
 
@@ -147,7 +147,7 @@ Orbis functions as a native **Model Context Protocol (MCP)** server over stdio f
 Orbis provides a high-level agent controller designed for LLM orchestration:
 
 ```typescript
-import { OrbisAgent } from '@memoracompany/orbis';
+import { OrbisAgent } from '@memoracompany/memora-orbis';
 
 // 1. Launch 1-line browser instance with anti-detect stealth
 const agent = await OrbisAgent.launch({ stealth: true, cdpPort: 9222 });

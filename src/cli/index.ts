@@ -103,7 +103,7 @@ async function checkOrbisVersion(): Promise<void> {
       if (data?.deprecated) {
         console.warn(`\n⚠️  [ORBIS ADVISORY] ${data.message || 'This version is deprecated. Please upgrade to the latest release.'}\n`);
       } else if (data?.latest && data.latest !== '0.1.1') {
-        console.log(`\n✨ [UPDATE AVAILABLE] Orbis v${data.latest} is available! (Current: v0.1.1). Run: npm i -g @memoracompany/orbis\n`);
+        console.log(`\n✨ [UPDATE AVAILABLE] Orbis v${data.latest} is available! (Current: v0.1.1). Run: npm i -g @memoracompany/memora-orbis\n`);
       }
     }
   } catch {

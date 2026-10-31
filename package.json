@@ -1,5 +1,5 @@
 {
-  "name": "@memoracompany/orbis",
+  "name": "@memoracompany/memora-orbis",
   "version": "0.1.1",
   "description": "Orbis by Memora — The Web, Working for You. Agent-native, ultra-lightweight headless browser engine with CDP, W3C WebDriver, semantic AXTree distillation, and built-in stealth",
   "homepage": "https://orbis.memora.company",
