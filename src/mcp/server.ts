@@ -131,7 +131,7 @@ export class MCPServer {
             protocolVersion: '2024-11-05',
             serverInfo: {
               name: 'orbis-browser',
-              version: '0.1.1',
+              version: '0.1.2',
               title: 'Orbis by Memora',
               website: 'https://orbis.memora.company'
             },

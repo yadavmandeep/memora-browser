@@ -145,7 +145,7 @@ export function visibleText(el: MemoraElement): string {
   if (el.tagName === 'pre') return out.join('').replace(/^\n+|\n+$/g, '');
   return out.join('')
     .split('\n')
-    .map(line => line.replace(/[ \t\r\f ]+/g, ' ').trim())
+    .map(line => line.replace(/[ \t\r\fÂ ]+/g, ' ').trim())
     .filter(Boolean)
     .join('\n');
 }
@@ -367,7 +367,7 @@ export class WebDriverServer {
         return this.send(res, {
           ready: this.sessions.size < this.options.maxSessions,
           message: this.sessions.size < this.options.maxSessions ? 'Memora WebDriver is ready' : 'Session limit reached',
-          build: { version: '0.1.1', engine: 'memora-native' },
+          build: { version: '0.1.2', engine: 'memora-native' },
         });
       }
       if (method === 'POST' && path === '/session') {
@@ -445,7 +445,7 @@ export class WebDriverServer {
       sessionId: session.id,
       capabilities: {
         browserName: merged.browserName || 'memora',
-        browserVersion: '0.1.1',
+        browserVersion: '0.1.2',
         platformName: platform,
         acceptInsecureCerts: !!network.insecureTls,
         pageLoadStrategy: merged.pageLoadStrategy || 'normal',
@@ -1045,7 +1045,7 @@ function applyTimeouts(target: Timeouts, value: any): void {
   }
 }
 
-// W3C "proxy" capability → engine network options
+// W3C "proxy" capability â†’ engine network options
 function proxyFromCapability(cap: any): NetworkOptions {
   const type = String(cap.proxyType || '').toLowerCase();
   if (type === 'direct') return { proxy: undefined, useEnvProxy: false };

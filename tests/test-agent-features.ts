@@ -1,5 +1,5 @@
 /**
- * Memora Browser — Agent Features Verification Suite
+ * Memora Browser â€” Agent Features Verification Suite
  * Verifies:
  *   1. Markdown Distiller with inline link/formatting preservation
  *   2. Collision-free deterministic unique selector generation
@@ -40,19 +40,19 @@ async function test(name: string, fn: () => void | Promise<void>) {
   try {
     await fn();
     passed++;
-    console.log(`  ✓ ${name}`);
+    console.log(`  âœ“ ${name}`);
   } catch (err: any) {
-    console.error(`  ✗ ${name}`);
+    console.error(`  âœ— ${name}`);
     console.error(err);
     throw err;
   }
 }
 
 async function run() {
-  console.log('╔════════════════════════════════════════════════════════════════╗');
-  console.log('║       🤖 MEMORA BROWSER — AGENT FEATURES VERIFICATION          ║');
-  console.log('║   Testing AXTree Distiller, Diffing, Form Fill & Session Vault ║');
-  console.log('╚════════════════════════════════════════════════════════════════╝\n');
+  console.log('â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—');
+  console.log('â•‘       ðŸ¤– MEMORA BROWSER â€” AGENT FEATURES VERIFICATION          â•‘');
+  console.log('â•‘   Testing AXTree Distiller, Diffing, Form Fill & Session Vault â•‘');
+  console.log('â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•\n');
 
   console.log('--- 1. Markdown Distiller & Inline Links Preservation ---');
 
@@ -793,7 +793,7 @@ async function run() {
       const verRes = await fetch('http://127.0.0.1:9449/json/version');
       assert.equal(verRes.status, 200);
       const verData = await verRes.json();
-      assert.equal(verData.product, 'Orbis/0.1.1');
+      assert.equal(verData.product, 'Orbis/0.1.2');
       assert.equal(verData.website, 'https://orbis.memora.company');
     } finally {
       await agent.close();
@@ -899,7 +899,7 @@ async function run() {
 }
 
 run().catch((err) => {
-  console.error('\n❌ TEST RUN FAILED:', err);
+  console.error('\nâŒ TEST RUN FAILED:', err);
   process.exit(1);
 });
 

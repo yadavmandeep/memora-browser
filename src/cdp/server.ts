@@ -23,7 +23,7 @@ function readJsonBody(req: http.IncomingMessage): Promise<any> {
 }
 
 // Challenge errors get their own status and a machine-readable body instead of a generic 500:
-// stop mode → 409, host in cooldown → 429 with Retry-After
+// stop mode â†’ 409, host in cooldown â†’ 429 with Retry-After
 function challengeErrorResponse(err: any): { status: number; headers: Record<string, string>; body: any } | null {
   if (err instanceof ChallengeDetectedError) {
     return {
@@ -110,7 +110,7 @@ export class CDPServer {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36',
         'V8-Version': '12.8.0',
         'WebKit-Version': '537.36',
-        product: 'Orbis/0.1.1',
+        product: 'Orbis/0.1.2',
         engine: 'Memora Browser Engine (MBE)',
         website: 'https://orbis.memora.company',
         company: 'https://memora.company',

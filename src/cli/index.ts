@@ -8,7 +8,7 @@ import { formatChallenge } from '../challenge/detector.js';
 
 // Show deprecation warning when legacy binary name is invoked
 if (process.argv[1] && (process.argv[1].endsWith('memora-browser') || process.argv[1].endsWith('memora-browser.js'))) {
-  console.warn('⚠️  [DEPRECATION WARNING] The "memora-browser" CLI alias is deprecated and will be removed in v2.0. Please use "orbis" or "memora-orbis".\n');
+  console.warn('âš ï¸  [DEPRECATION WARNING] The "memora-browser" CLI alias is deprecated and will be removed in v2.0. Please use "orbis" or "memora-orbis".\n');
 }
 
 const program = new Command();
@@ -22,8 +22,8 @@ function collect(value: string, previous: string[] = []): string[] {
 // Network flags shared by every command
 function addNetworkOptions(cmd: Command): Command {
   return cmd
-    .option('--http-proxy <url>', '[Orbis Cloud — Coming Soon] Managed residential proxy network (https://orbis.memora.company/cloud)')
-    .option('--proxy-bearer-token <token>', '[Orbis Cloud — Coming Soon] Proxy bearer authentication')
+    .option('--http-proxy <url>', '[Orbis Cloud â€” Coming Soon] Managed residential proxy network (https://orbis.memora.company/cloud)')
+    .option('--proxy-bearer-token <token>', '[Orbis Cloud â€” Coming Soon] Proxy bearer authentication')
     .option('--proxy-bypass <hosts>', 'Comma-separated hosts that skip the proxy (e.g. localhost,.internal.corp)')
     .option('--use-env-proxy', 'Use HTTP_PROXY / HTTPS_PROXY / ALL_PROXY / NO_PROXY when --http-proxy is not set')
     .option('--http-header <header>', 'Extra "Name: Value" header for every request (repeatable)', collect, [])
@@ -42,7 +42,7 @@ function parseNetworkOptions(opts: any): NetworkOptions {
   if (proxy) {
     validateProxyUrl(proxy);
     network.proxy = proxy;
-    console.warn('\nℹ️  [ORBIS CLOUD] Managed Residential Proxy Network is an Orbis Cloud feature (Coming Soon).\n    👉 Join the cloud proxy waitlist at: https://orbis.memora.company/cloud\n');
+    console.warn('\nâ„¹ï¸  [ORBIS CLOUD] Managed Residential Proxy Network is an Orbis Cloud feature (Coming Soon).\n    ðŸ‘‰ Join the cloud proxy waitlist at: https://orbis.memora.company/cloud\n');
   }
   if (opts.proxyBearerToken) network.proxyBearerToken = opts.proxyBearerToken;
   if (opts.proxyBypass) network.noProxy = opts.proxyBypass.split(',').map((s: string) => s.trim()).filter(Boolean);
@@ -80,11 +80,11 @@ function describeProxy(network: NetworkOptions): string {
   if (network.proxy) {
     return redactProxyUrl(network.proxy) + (network.proxyBearerToken ? ' (bearer auth)' : '');
   }
-  return 'Direct • Cloud Proxies: orbis.memora.company/cloud';
+  return 'Direct â€¢ Cloud Proxies: orbis.memora.company/cloud';
 }
 
 function fail(message: string): never {
-  console.error(`❌ ${message}`);
+  console.error(`âŒ ${message}`);
   process.exit(1);
 }
 
@@ -94,16 +94,16 @@ async function checkOrbisVersion(): Promise<void> {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 1500);
-    const res = await fetch('https://orbis.memora.company/api/v1/version-check?v=0.1.1', {
+    const res = await fetch('https://orbis.memora.company/api/v1/version-check?v=0.1.2', {
       signal: controller.signal
     }).catch(() => null);
     clearTimeout(timeout);
     if (res && res.ok) {
       const data: any = await res.json().catch(() => null);
       if (data?.deprecated) {
-        console.warn(`\n⚠️  [ORBIS ADVISORY] ${data.message || 'This version is deprecated. Please upgrade to the latest release.'}\n`);
-      } else if (data?.latest && data.latest !== '0.1.1') {
-        console.log(`\n✨ [UPDATE AVAILABLE] Orbis v${data.latest} is available! (Current: v0.1.1). Run: npm i -g @memoracompany/memora-orbis\n`);
+        console.warn(`\nâš ï¸  [ORBIS ADVISORY] ${data.message || 'This version is deprecated. Please upgrade to the latest release.'}\n`);
+      } else if (data?.latest && data.latest !== '0.1.2') {
+        console.log(`\nâœ¨ [UPDATE AVAILABLE] Orbis v${data.latest} is available! (Current: v0.1.2). Run: npm i -g @memoracompany/memora-orbis\n`);
       }
     }
   } catch {
@@ -152,7 +152,7 @@ async function runServer(options: any): Promise<void> {
       await server.start();
     } catch (e: any) {
       if (e.code === 'EADDRINUSE') {
-        fail(`Port ${port} is already in use by another process.\n   💡 HINT: Specify another port with --port ${port + 1} or stop the conflicting service.`);
+        fail(`Port ${port} is already in use by another process.\n   ðŸ’¡ HINT: Specify another port with --port ${port + 1} or stop the conflicting service.`);
       }
       fail(`Could not start WebDriver server on ${host}:${port}: ${e.message}`);
     }
@@ -178,7 +178,7 @@ async function runServer(options: any): Promise<void> {
 
   // One-shot eval mode
   if (options.eval) {
-    console.log(`\n🔍 [Orbis] Fetching & Distilling: ${options.eval} ...`);
+    console.log(`\nðŸ” [Orbis] Fetching & Distilling: ${options.eval} ...`);
     const startTime = performance.now();
     const page = browser.newPage();
     try {
@@ -188,15 +188,15 @@ async function runServer(options: any): Promise<void> {
       const snapshot = page.getSemanticSnapshot();
       const duration = (performance.now() - startTime).toFixed(1);
 
-      console.log(`\n✨ Successfully distilled in ${duration}ms!`);
-      console.log(`📌 Title: ${snapshot.title}`);
-      console.log(`🎯 Interactive Elements: ${snapshot.interactiveCount}`);
-      console.log(`🧠 Estimated Prompt Tokens: ${snapshot.tokenEstimate}`);
+      console.log(`\nâœ¨ Successfully distilled in ${duration}ms!`);
+      console.log(`ðŸ“Œ Title: ${snapshot.title}`);
+      console.log(`ðŸŽ¯ Interactive Elements: ${snapshot.interactiveCount}`);
+      console.log(`ðŸ§  Estimated Prompt Tokens: ${snapshot.tokenEstimate}`);
       console.log('\n' + snapshot.actionMapText);
       console.log('\n--- Distilled Content ---');
       console.log(snapshot.markdown.slice(0, 1000) + (snapshot.markdown.length > 1000 ? '\n... [truncated]' : ''));
     } catch (err: any) {
-      console.error('❌ Error during eval:', err.message || err);
+      console.error('âŒ Error during eval:', err.message || err);
     } finally {
       process.exit(0);
     }
@@ -210,7 +210,7 @@ async function runServer(options: any): Promise<void> {
     await server.start();
   } catch (e: any) {
     if (e.code === 'EADDRINUSE') {
-      fail(`Port ${port} is already in use by another process.\n   💡 HINT: Specify another port with --port ${port + 1} or stop the conflicting service.`);
+      fail(`Port ${port} is already in use by another process.\n   ðŸ’¡ HINT: Specify another port with --port ${port + 1} or stop the conflicting service.`);
     }
     fail(`Could not start Orbis server on ${host}:${port}: ${e.message}`);
   }
@@ -249,8 +249,8 @@ function addServerOptions(cmd: Command): Command {
 
 addServerOptions(program
   .name('orbis')
-  .description('Orbis by Memora — The Web, Working for You. Built for Autonomous Intelligence (orbis.memora.company)')
-  .version('0.1.1'))
+  .description('Orbis by Memora â€” The Web, Working for You. Built for Autonomous Intelligence (orbis.memora.company)')
+  .version('0.1.2'))
   .addHelpText('before', () => renderOrbisBanner('help'))
   .option('--eval <url>', 'Fetch a URL, distill semantic snapshot, and output to console')
   .option('--mcp', 'Run as Model Context Protocol (MCP) server over stdio for Cursor, Claude, Antigravity')
