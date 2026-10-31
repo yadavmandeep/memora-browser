@@ -49,14 +49,14 @@ export function renderOrbisBanner(
   let tagline = '';
 
   if (mode === 'webdriver') {
-    badge = `  ${teal}⬡${reset}  ${gold}ORBIS${reset} ${dim}BY${reset} ${teal}MEMORA${reset} ${dim}—${reset} ${cyan}${bold}WEBDRIVER MODE${reset}  ${dim}•${reset}  ${dim}v0.1.0${reset}`;
+    badge = `  ${teal}⬡${reset}  ${gold}ORBIS${reset} ${dim}BY${reset} ${teal}MEMORA${reset} ${dim}—${reset} ${cyan}${bold}WEBDRIVER MODE${reset}  ${dim}•${reset}  ${dim}v0.1.1${reset}`;
     tagline = `  ${white}W3C WebDriver for Selenium, WebdriverIO, & Agents${reset} ${dim}•${reset} ${cyan}orbis.memora.company${reset}`;
   } else if (mode === 'help') {
-    badge = `  ${teal}⬡${reset}  ${gold}ORBIS${reset} ${dim}BY${reset} ${teal}MEMORA${reset}  ${dim}•${reset}  ${cyan}v0.1.0${reset}  ${dim}(Agentic Browser Engine)${reset}`;
+    badge = `  ${teal}⬡${reset}  ${gold}ORBIS${reset} ${dim}BY${reset} ${teal}MEMORA${reset}  ${dim}•${reset}  ${cyan}v0.1.1${reset}  ${dim}(Agentic Browser Engine)${reset}`;
     tagline = `  ${white}The Web, Working for You. Built for Autonomous AI${reset} ${dim}•${reset} ${cyan}orbis.memora.company${reset}`;
     return `\n${badge}\n${tagline}\n`;
   } else {
-    badge = `  ${teal}⬡${reset}  ${gold}ORBIS${reset} ${dim}BY${reset} ${teal}MEMORA${reset}  ${dim}•${reset}  ${cyan}v0.1.0${reset}  ${dim}(Agentic Browser Engine)${reset}`;
+    badge = `  ${teal}⬡${reset}  ${gold}ORBIS${reset} ${dim}BY${reset} ${teal}MEMORA${reset}  ${dim}•${reset}  ${cyan}v0.1.1${reset}  ${dim}(Agentic Browser Engine)${reset}`;
     tagline = `  ${white}An Agentic Browser • Built for Autonomous AI${reset} ${dim}•${reset} ${cyan}orbis.memora.company${reset}`;
   }
 

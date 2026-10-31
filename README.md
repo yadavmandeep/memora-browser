@@ -86,7 +86,7 @@ npx @memoracompany/orbis --port 9222
 
 Output:
 ```text
-  ⬡  ORBIS BY MEMORA  •  v0.1.0  (Agentic Browser Engine)
+  ⬡  ORBIS BY MEMORA  •  v0.1.1  (Agentic Browser Engine)
   An Agentic Browser • Built for Autonomous AI • orbis.memora.company
   ──────────────────────────────────────────────────────────────────
   ▶ Core Engine:        Memora Browser Engine (MBE)

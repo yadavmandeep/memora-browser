@@ -741,8 +741,8 @@ export class CDPDispatcher {
         if (action === 'getVersion') {
           return {
             protocolVersion: '1.3',
-            product: 'MemoraEngine/0.1.0',
-            revision: '0.1.0',
+            product: 'MemoraEngine/0.1.1',
+            revision: '0.1.1',
             userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36',
             jsVersion: 'V8-12.x'
           };

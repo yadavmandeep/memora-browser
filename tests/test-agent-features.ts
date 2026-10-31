@@ -793,7 +793,7 @@ async function run() {
       const verRes = await fetch('http://127.0.0.1:9449/json/version');
       assert.equal(verRes.status, 200);
       const verData = await verRes.json();
-      assert.equal(verData.product, 'Orbis/0.1.0');
+      assert.equal(verData.product, 'Orbis/0.1.1');
       assert.equal(verData.website, 'https://orbis.memora.company');
     } finally {
       await agent.close();

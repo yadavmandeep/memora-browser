@@ -33,14 +33,15 @@ export function cleanUrlForLLM(href?: string): string | undefined {
     for (const p of trackingParams) {
       u.searchParams.delete(p);
     }
-    let clean = u.pathname;
+    const hasOrigin = u.origin !== 'https://memora-distill.local';
+    let clean = (hasOrigin ? u.origin : '') + u.pathname;
     if (u.search && u.search.length > 1) {
       clean += u.search;
     }
     // Truncate if still excessively long
-    return clean.length > 80 ? clean.slice(0, 77) + '...' : clean;
+    return clean.length > 120 ? clean.slice(0, 117) + '...' : clean;
   } catch {
-    return href.length > 80 ? href.slice(0, 77) + '...' : href;
+    return href.length > 120 ? href.slice(0, 117) + '...' : href;
   }
 }
 

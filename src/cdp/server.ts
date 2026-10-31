@@ -88,7 +88,7 @@ export class CDPServer {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36',
         'V8-Version': '12.8.0',
         'WebKit-Version': '537.36',
-        product: 'Orbis/0.1.0',
+        product: 'Orbis/0.1.1',
         engine: 'Memora Browser Engine (MBE)',
         website: 'https://orbis.memora.company',
         company: 'https://memora.company',
