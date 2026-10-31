@@ -2,6 +2,8 @@ import { fetch as undiciFetch } from './undici.js';
 import { getStealthHeaders } from '../stealth/fingerprint.js';
 import { NetworkOptions } from '../types/index.js';
 import { DispatcherPool } from './proxy.js';
+import { CookieJar } from './cookie-jar.js';
+import type { ChallengeSignal } from '../challenge/detector.js';
 
 export interface FetchResponse {
   url: string;
@@ -24,16 +26,23 @@ export interface RequestOptions {
 const MAX_REDIRECTS = 20;
 
 export class NetworkFetcher {
-  private cookies: Map<string, string> = new Map();
+  public readonly cookieJar: CookieJar;
+  private inFlightControllers: Set<AbortController> = new Set();
   private extraHeaders: Record<string, string> = {};
   private readonly options: NetworkOptions;
   private readonly pool: DispatcherPool;
   private readonly ownsPool: boolean;
 
-  constructor(options: NetworkOptions = {}, pool?: DispatcherPool) {
+  constructor(options: NetworkOptions = {}, pool?: DispatcherPool, cookieJar?: CookieJar) {
     this.options = options;
     this.pool = pool || new DispatcherPool(options);
     this.ownsPool = !pool;
+    this.cookieJar = cookieJar || new CookieJar();
+  }
+
+  // Pauses further requests to the signal's host when it blocks; returns the pause in seconds
+  public recordChallenge(signal: ChallengeSignal | null): number {
+    return this.pool.cooldown.record(signal);
   }
 
   public setExtraHeaders(headers: Record<string, string>): void {
@@ -41,48 +50,40 @@ export class NetworkFetcher {
   }
 
   public setCookie(name: string, value: string): void {
-    this.cookies.set(name, value);
+    this.cookieJar.set(name, value);
   }
 
   public deleteCookie(name: string): void {
-    this.cookies.delete(name);
+    this.cookieJar.delete(name);
   }
 
   public clearCookies(): void {
-    this.cookies.clear();
+    this.cookieJar.clear();
   }
 
   public dumpCookies(): Record<string, string> {
-    const out: Record<string, string> = {};
-    for (const [k, v] of this.cookies.entries()) {
-      out[k] = v;
-    }
-    return out;
+    return this.cookieJar.dump();
   }
 
   public restoreCookies(cookies: Record<string, string>): void {
-    for (const [k, v] of Object.entries(cookies)) {
-      this.cookies.set(k, v);
-    }
+    this.cookieJar.restore(cookies);
   }
 
   public getCookieHeader(): string {
-    return Array.from(this.cookies.entries())
-      .map(([k, v]) => `${k}=${v}`)
-      .join('; ');
+    return this.cookieJar.getCookieHeader();
   }
 
-  private storeSetCookies(headers: { getSetCookie(): string[] }): void {
-    for (const line of headers.getSetCookie()) {
-      const pair = line.split(';')[0];
-      const eq = pair.indexOf('=');
-      if (eq <= 0) continue;
-      const name = pair.slice(0, eq).trim();
-      const value = pair.slice(eq + 1).trim();
-      const expired = /max-age=0\b/i.test(line) || /expires=[^;]*19[0-7]\d/i.test(line);
-      if (expired) this.cookies.delete(name);
-      else this.cookies.set(name, value);
+  public abortInFlight(): void {
+    for (const ctrl of this.inFlightControllers) {
+      try {
+        ctrl.abort();
+      } catch {}
     }
+    this.inFlightControllers.clear();
+  }
+
+  private storeSetCookies(headers: { getSetCookie(): string[] } | any): void {
+    this.cookieJar.storeSetCookies(headers);
   }
 
   private baseHeaders(navigation: boolean): Record<string, string> {
@@ -107,6 +108,7 @@ export class NetworkFetcher {
     const timeoutMs = opts.timeoutMs ?? this.options.timeoutMs ?? 15000;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    this.inFlightControllers.add(controller);
 
     let method = (opts.method || 'GET').toUpperCase();
     let body = opts.body;
@@ -116,6 +118,7 @@ export class NetworkFetcher {
       for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
         // --obey-robots: every hop, redirect targets included, is checked against its origin's robots.txt
         await this.pool.robots?.check(currentUrl);
+        this.pool.cooldown.assertClear(currentUrl);
         const headers = this.baseHeaders(!opts.resource);
         Object.assign(headers, opts.headers || {});
         if (body === undefined) delete headers['Content-Type'];
@@ -172,6 +175,7 @@ export class NetworkFetcher {
       throw err;
     } finally {
       clearTimeout(timer);
+      this.inFlightControllers.delete(controller);
     }
   }
 
@@ -189,6 +193,7 @@ export class NetworkFetcher {
     const rawUrl = typeof input === 'string' || input instanceof URL ? String(input) : input?.url;
     const target = baseUrl ? new URL(rawUrl, baseUrl).toString() : rawUrl;
     await this.pool.robots?.check(target);
+    this.pool.cooldown.assertClear(target);
     const headers = this.baseHeaders(false);
     if (init.headers) {
       const given = typeof init.headers.forEach === 'function'
@@ -206,6 +211,7 @@ export class NetworkFetcher {
   }
 
   public async close(): Promise<void> {
+    this.abortInFlight();
     if (this.ownsPool) await this.pool.close();
   }
 }

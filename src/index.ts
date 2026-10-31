@@ -1,6 +1,10 @@
 export * from './types/index.js';
 export { OrbisBrowser, MemoraBrowser } from './engine/browser.js';
+export type { NewPageOptions } from './engine/browser.js';
+export { OrbisContext, MemoraContext } from './engine/context.js';
+export type { ContextOptions } from './engine/context.js';
 export { OrbisPage, MemoraPage } from './engine/page.js';
+export { CookieJar } from './network/cookie-jar.js';
 export { CDPServer } from './cdp/server.js';
 export { CDPDispatcher } from './cdp/dispatcher.js';
 export { MemoraDocument, MemoraElement, MemoraNode, MemoraTextNode, MemoraCommentNode } from './dom/node.js';
@@ -16,4 +20,10 @@ export { saveSessionToFile, loadSessionFromFile, validateSessionData } from './e
 export { ChromeEngine } from './engine/chrome-engine.js';
 export { NativeEngineAdapter } from './engine/native-adapter.js';
 export * from './dom/locators.js';
+export { detectChallenge, formatChallenge } from './challenge/detector.js';
+export type { ChallengeSignal, ChallengeKind, ChallengeVendor, DetectInput } from './challenge/detector.js';
+export { ChallengeCooldown, ChallengeCooldownError } from './challenge/cooldown.js';
+export { ChallengeDetectedError } from './challenge/errors.js';
+export { HumanHandoff, hasDisplay, DEFAULT_HANDOFF_TIMEOUT_SEC } from './challenge/handoff.js';
+export type { HandoffState, HandoffStatus, HandoffEngine, HumanHandoffOptions } from './challenge/handoff.js';
 export * from './adapters/index.js';

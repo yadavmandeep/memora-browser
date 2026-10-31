@@ -2,6 +2,10 @@ import readline from 'node:readline';
 import { ChromeEngine, findSystemChrome } from '../engine/chrome-engine.js';
 import { NativeEngineAdapter } from '../engine/native-adapter.js';
 import { NetworkOptions } from '../types/index.js';
+import { ChallengeSignal, formatChallenge } from '../challenge/detector.js';
+import { ChallengeDetectedError } from '../challenge/errors.js';
+import { ChallengeCooldownError } from '../challenge/cooldown.js';
+import { HumanHandoff, HandoffStatus } from '../challenge/handoff.js';
 
 export type MCPEngineType = 'auto' | 'native' | 'chrome';
 
@@ -25,14 +29,31 @@ export interface IMemoraEngine {
   saveSession(filePath: string): Promise<void>;
   loadSession(filePath: string): Promise<void>;
   close(): Promise<void>;
+  getChallenge?(): { signal: ChallengeSignal | null; cooldownSec: number };
 }
+
+export interface MCPServerOptions {
+  handoffTimeoutSec?: number;
+  // Test seam: engine used for the handoff window (default: visible ChromeEngine)
+  handoffEngineFactory?: (network: NetworkOptions) => ChromeEngine;
+  // Test seam: returns a reason when a handoff window can't be shown
+  handoffAvailable?: () => string | null;
+}
+
+const HANDOFF_HINT = 'A person can complete it in a visible browser window: call memora_handoff with action "start".';
 
 export class MCPServer {
   private engine: IMemoraEngine;
   public readonly engineType: MCPEngineType;
+  private readonly handoff: HumanHandoff<ChromeEngine>;
 
-  constructor(network: NetworkOptions = {}, engineType: MCPEngineType = 'auto') {
+  constructor(network: NetworkOptions = {}, engineType: MCPEngineType = 'auto', options: MCPServerOptions = {}) {
     this.engineType = engineType;
+    this.handoff = new HumanHandoff<ChromeEngine>(network, {
+      timeoutSec: options.handoffTimeoutSec,
+      engineFactory: options.handoffEngineFactory,
+      available: options.handoffAvailable,
+    });
 
     if (engineType === 'chrome') {
       this.engine = new ChromeEngine(network);
@@ -67,7 +88,7 @@ export class MCPServer {
         const message = JSON.parse(trimmed);
         const response = await this.handleMessage(message);
         if (response) {
-          process.stdout.write(JSON.stringify(response) + '\\n');
+          process.stdout.write(JSON.stringify(response) + '\n');
         }
       } catch (err: any) {
         const errResp = {
@@ -78,19 +99,24 @@ export class MCPServer {
             message: 'Parse error: ' + err.message
           }
         };
-        process.stdout.write(JSON.stringify(errResp) + '\\n');
+        process.stdout.write(JSON.stringify(errResp) + '\n');
       }
     });
 
     // Don't crash on pipe close
     process.on('SIGTERM', async () => {
-      await this.engine.close();
+      await this.close();
       process.exit(0);
     });
     process.on('SIGINT', async () => {
-      await this.engine.close();
+      await this.close();
       process.exit(0);
     });
+  }
+
+  public async close(): Promise<void> {
+    await this.handoff.close();
+    await this.engine.close();
   }
 
   private async handleMessage(msg: any): Promise<any | null> {
@@ -314,6 +340,19 @@ export class MCPServer {
                 }
               },
               {
+                name: 'memora_handoff',
+                annotations: { destructiveHint: false, idempotentHint: false },
+                description: 'Hand a CAPTCHA or bot check to a person. "start" opens the page in a visible Chrome window for the user to complete themselves; tell the user to do so, then poll with "status". When resolved, the session continues in that window. Orbis never solves challenges itself, and the agent cannot act on the window while the person is working on it.',
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    action: { type: 'string', enum: ['start', 'status', 'cancel'], description: 'start: open the window; status: check progress (non-blocking); cancel: close the window' },
+                    url: { type: 'string', description: 'Page to open (default: the page where the last challenge was detected)' }
+                  },
+                  required: ['action']
+                }
+              },
+              {
                 name: 'memora_fork',
                 annotations: { destructiveHint: false, idempotentHint: true },
                 description: 'Speculatively fork (clone) the current session into a new tab to test alternative workflows without refetching.',
@@ -346,6 +385,7 @@ export class MCPServer {
             }
           };
         } catch (err: any) {
+          const hint = err instanceof ChallengeDetectedError || err instanceof ChallengeCooldownError ? `\n${HANDOFF_HINT}` : '';
           return {
             jsonrpc: '2.0',
             id,
@@ -354,7 +394,7 @@ export class MCPServer {
               content: [
                 {
                   type: 'text',
-                  text: `Error executing ${toolName}: ${err.message || String(err)}`
+                  text: `Error executing ${toolName}: ${err.message || String(err)}${hint}`
                 }
               ]
             }
@@ -375,6 +415,63 @@ export class MCPServer {
     }
   }
 
+  // Blocking challenge: replaces the page output. Embedded widget / passive script: a short header.
+  private challengeReport(): { blocking: string | null; notice: string | null } {
+    const ch = this.engine.getChallenge?.();
+    if (!ch?.signal) return { blocking: null, notice: null };
+    if (ch.signal.blocking) return { blocking: `${formatChallenge(ch.signal, ch.cooldownSec)}\n${HANDOFF_HINT}`, notice: null };
+    if (ch.signal.kind === 'captcha') return { blocking: null, notice: formatChallenge(ch.signal) };
+    return { blocking: null, notice: `Note: passive bot-check script on page (${ch.signal.vendor}).` };
+  }
+
+  private async runHandoff(action: string, url?: string): Promise<string> {
+    let status: HandoffStatus;
+    if (action === 'start') {
+      const last = this.engine.getChallenge?.().signal ?? null;
+      const target = url || last?.url;
+      if (!target) throw new Error('No challenged page to hand off; pass "url"');
+      status = await this.handoff.start(target, url && url !== last?.url ? null : last);
+      if (status.state === 'waiting') {
+        return [
+          `Handoff started: a Chrome window is open at ${status.url}.`,
+          'Ask the user to complete the check in that window themselves, then call memora_handoff with action "status".',
+          `The window closes automatically after ${status.timeoutSec}s if the check is not completed.`
+        ].join('\n');
+      }
+    } else if (action === 'status') {
+      status = await this.handoff.status();
+    } else if (action === 'cancel') {
+      status = await this.handoff.cancel();
+    } else {
+      throw new Error(`Unsupported handoff action: "${action}"`);
+    }
+
+    if (status.state === 'resolved') {
+      const signal = this.handoff.resolvedSignal;
+      const next = this.handoff.take();
+      next.adoptAfterHandoff(signal);
+      const previous = this.engine;
+      this.engine = next;
+      if (previous !== next) await previous.close().catch(() => {});
+      const snapshot = await this.engine.getSemanticSnapshot({ maxActions: 50, compactSelectors: true });
+      return [
+        'Handoff resolved: the check was completed. The session now continues in the visible Chrome window.',
+        `URL: ${snapshot.url}`,
+        `Page Title: "${snapshot.title}"`,
+        '',
+        snapshot.actionMapText
+      ].join('\n');
+    }
+
+    const lines = [`Handoff state: ${status.state}`];
+    if (status.url) lines.push(`URL: ${status.url}`);
+    if (status.elapsedSec !== undefined && status.timeoutSec) lines.push(`Waiting ${status.elapsedSec}s of ${status.timeoutSec}s.`);
+    if (status.reason) lines.push(`Reason: ${status.reason}`);
+    if (status.state === 'waiting') lines.push('The person has not completed the check yet. Poll again later; do not act on the page meanwhile.');
+    if (status.state === 'idle') lines.push('No handoff in progress.');
+    return lines.join('\n');
+  }
+
   private async executeTool(name: string, args: any): Promise<string> {
     const canonicalName = name.startsWith('orbis_') ? 'memora_' + name.slice(6) : name;
     switch (canonicalName) {
@@ -383,6 +480,8 @@ export class MCPServer {
         const t0 = performance.now();
         const resp = await this.engine.goto(url, timeout || 20000);
         const duration = (performance.now() - t0).toFixed(1);
+        const challenge = this.challengeReport();
+        if (challenge.blocking) return challenge.blocking;
 
         const snapshot = await this.engine.getSemanticSnapshot({
           focusSelector: focus,
@@ -396,6 +495,7 @@ export class MCPServer {
         });
 
         return [
+          ...(challenge.notice ? [challenge.notice, ''] : []),
           `# Page Loaded: ${snapshot.title} (${duration}ms)`,
           `URL: ${snapshot.url} [HTTP ${resp.status}]`,
           `Token Estimate: ~${snapshot.tokenEstimate} tokens | Interactive Elements: ${snapshot.interactiveCount}`,
@@ -410,6 +510,8 @@ export class MCPServer {
       case 'memora_act': {
         const { actionId, type, text } = args;
         const res = await this.engine.act(actionId, type, text);
+        const challenge = this.challengeReport();
+        if (challenge.blocking) return challenge.blocking;
         const snapshot = await this.engine.getSemanticSnapshot({
           maxActions: 50,
           compactSelectors: true
@@ -431,6 +533,8 @@ export class MCPServer {
       case 'memora_fill_form': {
         const { fields, submitActionId } = args;
         const res = await this.engine.fillForm({ fields, submitActionId });
+        const challenge = this.challengeReport();
+        if (challenge.blocking) return challenge.blocking;
         const snapshot = await this.engine.getSemanticSnapshot({
           maxActions: 50,
           compactSelectors: true
@@ -503,6 +607,8 @@ export class MCPServer {
         const t0 = performance.now();
         const resp = await this.engine.reload();
         const duration = (performance.now() - t0).toFixed(1);
+        const challenge = this.challengeReport();
+        if (challenge.blocking) return challenge.blocking;
         const snapshot = await this.engine.getSemanticSnapshot();
         return `Page reloaded in ${duration}ms (HTTP ${resp.status}). Title: "${snapshot.title}". Active elements: ${snapshot.interactiveCount}
 
@@ -528,6 +634,10 @@ ${snapshot.actionMapText}`;
 
       case 'memora_fork': {
         return await this.engine.fork();
+      }
+
+      case 'memora_handoff': {
+        return await this.runHandoff(args.action, args.url);
       }
 
       default:

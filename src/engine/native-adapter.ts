@@ -10,6 +10,7 @@ import {
   StructuredPageData
 } from '../types/index.js';
 import { MarkdownOptions } from '../distiller/markdown.js';
+import type { ChallengeSignal } from '../challenge/detector.js';
 
 export class NativeEngineAdapter {
   public browser: MemoraBrowser;
@@ -29,6 +30,10 @@ export class NativeEngineAdapter {
       this.actionSelectorMap.set(act.actionId, act.selector);
     }
     return res;
+  }
+
+  public getChallenge(): { signal: ChallengeSignal | null; cooldownSec: number } {
+    return { signal: this.page.lastChallenge, cooldownSec: this.page.lastChallengeCooldownSec };
   }
 
   public async getSemanticSnapshot(options: SnapshotOptions = {}): Promise<SemanticPageSnapshot> {

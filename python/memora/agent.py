@@ -2,7 +2,45 @@ import os
 import json
 import urllib.request
 import urllib.parse
+import urllib.error
 from typing import Dict, Any, Optional, List
+
+
+class ChallengeDetectedError(urllib.error.HTTPError):
+    """The page is a CAPTCHA / bot check / block page / 429 and the daemon runs with
+    --on-challenge stop (HTTP 409). Orbis detects challenges; it never solves them."""
+
+    def __init__(self, err: urllib.error.HTTPError, body: Dict[str, Any]):
+        super().__init__(err.url, err.code, body.get("error", err.msg), err.hdrs, None)
+        self.body = body
+        self.challenge: Dict[str, Any] = body.get("challenge") or {}
+        self.cooldown_sec: int = body.get("cooldownSec", 0)
+
+
+class ChallengeCooldownError(urllib.error.HTTPError):
+    """Requests to this host are paused after a challenge or 429 (HTTP 429, Retry-After set)."""
+
+    def __init__(self, err: urllib.error.HTTPError, body: Dict[str, Any]):
+        super().__init__(err.url, err.code, body.get("error", err.msg), err.hdrs, None)
+        self.body = body
+        self.host: str = body.get("host", "")
+        self.remaining_sec: int = body.get("remainingSec", 0)
+        self.challenge: Dict[str, Any] = body.get("challenge") or {}
+
+
+def _raise_http_error(err: urllib.error.HTTPError) -> None:
+    """Re-raise challenge errors as typed subclasses; everything else unchanged."""
+    try:
+        body = json.loads(err.read().decode("utf-8"))
+    except Exception:
+        raise err
+    code = body.get("code") if isinstance(body, dict) else None
+    if code == "ERR_CHALLENGE_DETECTED":
+        raise ChallengeDetectedError(err, body) from None
+    if code == "ERR_CHALLENGE_COOLDOWN":
+        raise ChallengeCooldownError(err, body) from None
+    raise err
+
 
 class OrbisSnapshot:
     def __init__(self, data: Dict[str, Any]):
@@ -14,9 +52,18 @@ class OrbisSnapshot:
         self.actions = data.get("actions", [])
         self.token_estimate = data.get("tokenEstimate", 0)
         self.interactive_count = data.get("interactiveCount", 0)
+        # CAPTCHA / bot-check / rate-limit signal of the last navigation (None when none)
+        self.challenge: Optional[Dict[str, Any]] = data.get("challenge")
+        self.challenge_cooldown_sec: int = data.get("challengeCooldownSec", 0)
+
+    @property
+    def blocked(self) -> bool:
+        """True when the loaded page is a challenge or block page, not the real page."""
+        return bool(self.challenge and self.challenge.get("blocking"))
 
     def __repr__(self) -> str:
-        return f"<OrbisSnapshot '{self.title}' actions={self.interactive_count} tokens={self.token_estimate}>"
+        flag = f" challenge={self.challenge.get('vendor')}/{self.challenge.get('kind')}" if self.challenge else ""
+        return f"<OrbisSnapshot '{self.title}' actions={self.interactive_count} tokens={self.token_estimate}{flag}>"
 
 class OrbisAgent:
     """
@@ -56,8 +103,12 @@ class OrbisAgent:
         if params:
             url += f"?{urllib.parse.urlencode(params)}"
         req = urllib.request.Request(url, headers=self._make_headers())
-        with urllib.request.urlopen(req, timeout=15) as res:
-            return json.loads(res.read().decode("utf-8"))
+        try:
+            with urllib.request.urlopen(req, timeout=15) as res:
+                return json.loads(res.read().decode("utf-8"))
+        except urllib.error.HTTPError as err:
+            _raise_http_error(err)
+            raise
 
     def _post(self, path: str, data: Dict[str, Any], params: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
         url = f"{self.base_url}{path}"
@@ -71,13 +122,25 @@ class OrbisAgent:
             headers=headers,
             method="POST"
         )
-        with urllib.request.urlopen(req, timeout=15) as res:
-            return json.loads(res.read().decode("utf-8"))
+        try:
+            with urllib.request.urlopen(req, timeout=15) as res:
+                return json.loads(res.read().decode("utf-8"))
+        except urllib.error.HTTPError as err:
+            _raise_http_error(err)
+            raise
 
     def goto(self, url: str) -> OrbisSnapshot:
-        """Navigate to target URL and return distilled semantic snapshot."""
+        """Navigate to target URL and return distilled semantic snapshot.
+
+        If the page is a CAPTCHA / bot check / block page / 429, ``snapshot.challenge`` describes it
+        and ``snapshot.blocked`` is True. With ``--on-challenge stop`` this raises
+        ChallengeDetectedError instead; a host in cooldown raises ChallengeCooldownError.
+        """
         data = self._get("/orbis/goto", {"url": url})
-        return OrbisSnapshot(data.get("snapshot", data))
+        snap = OrbisSnapshot(data.get("snapshot", data))
+        snap.challenge = data.get("challenge")
+        snap.challenge_cooldown_sec = data.get("challengeCooldownSec", 0)
+        return snap
 
     def snapshot(self, focus_selector: Optional[str] = None, exclude_selectors: Optional[List[str]] = None) -> OrbisSnapshot:
         """Fetch current semantic snapshot with numbered action IDs (@1, @2, ...)."""
@@ -142,6 +205,10 @@ class OrbisAgent:
             def orbis_navigate(url: str) -> str:
                 """Navigate to a URL and return distilled snapshot and action map."""
                 snap = self.goto(url)
+                if snap.blocked:
+                    ch = snap.challenge or {}
+                    return (f"CHALLENGE DETECTED: {ch.get('vendor')} {ch.get('kind')} (HTTP {ch.get('status')}). "
+                            "Page content not available. Stop or try later; Orbis does not solve challenges.")
                 return f"{snap.action_map_text}\n\n=== CONTENT ===\n{snap.markdown[:4000]}"
 
             @tool

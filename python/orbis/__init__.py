@@ -1,3 +1,3 @@
-from memora.agent import OrbisAgent, OrbisSnapshot, MemoraAgent, MemoraSnapshot
+from memora.agent import OrbisAgent, OrbisSnapshot, MemoraAgent, MemoraSnapshot, ChallengeDetectedError, ChallengeCooldownError
 
-__all__ = ["OrbisAgent", "OrbisSnapshot", "MemoraAgent", "MemoraSnapshot"]
+__all__ = ["OrbisAgent", "OrbisSnapshot", "MemoraAgent", "MemoraSnapshot", "ChallengeDetectedError", "ChallengeCooldownError"]

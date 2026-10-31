@@ -4,6 +4,7 @@ import { OrbisBrowser } from '../engine/browser.js';
 import { NetworkOptions } from '../types/index.js';
 import { redactProxyUrl, validateProxyUrl } from '../network/proxy.js';
 import { renderOrbisBanner } from './banner.js';
+import { formatChallenge } from '../challenge/detector.js';
 
 // Show deprecation warning when legacy binary name is invoked
 if (process.argv[1] && (process.argv[1].endsWith('memora-browser') || process.argv[1].endsWith('memora-browser.js'))) {
@@ -30,7 +31,9 @@ function addNetworkOptions(cmd: Command): Command {
     .option('--http-timeout <ms>', 'Navigation request timeout in milliseconds')
     .option('--insecure-disable-tls-host-verification', 'Skip TLS certificate verification (self-signed / MITM proxies)')
     .option('--obey-robots', 'Fetch robots.txt for every origin and block requests it disallows (RFC 9309)')
-    .option('--robots-agent <token>', 'Product token matched against robots.txt User-agent lines (default: MemoraBrowser)');
+    .option('--robots-agent <token>', 'Product token matched against robots.txt User-agent lines (default: MemoraBrowser)')
+    .option('--on-challenge <mode>', 'On a CAPTCHA/bot challenge or 429: "report" (default, load it and flag it) or "stop" (fail the navigation)')
+    .option('--challenge-cooldown <sec>', 'Pause requests to a host for this long after a CAPTCHA/bot challenge or 429 (default: 60, 0 disables; Retry-After wins)');
 }
 
 function parseNetworkOptions(opts: any): NetworkOptions {
@@ -48,6 +51,15 @@ function parseNetworkOptions(opts: any): NetworkOptions {
   if (opts.httpTimeout) network.timeoutMs = parseInt(opts.httpTimeout, 10);
   if (opts.insecureDisableTlsHostVerification) network.insecureTls = true;
   if (opts.obeyRobots) network.obeyRobots = true;
+  if (opts.onChallenge !== undefined) {
+    if (opts.onChallenge !== 'report' && opts.onChallenge !== 'stop') throw new Error(`Invalid --on-challenge "${opts.onChallenge}": use "report" or "stop"`);
+    network.onChallenge = opts.onChallenge;
+  }
+  if (opts.challengeCooldown !== undefined) {
+    const sec = Number(opts.challengeCooldown);
+    if (!Number.isInteger(sec) || sec < 0) throw new Error(`Invalid --challenge-cooldown "${opts.challengeCooldown}": expected a whole number of seconds >= 0`);
+    network.challengeCooldownSec = sec;
+  }
   if (opts.robotsAgent) {
     if (!/^[A-Za-z_-]+$/.test(opts.robotsAgent)) throw new Error(`Invalid --robots-agent "${opts.robotsAgent}": use letters, "_" and "-" only (RFC 9309)`);
     network.robotsAgent = opts.robotsAgent;
@@ -112,7 +124,12 @@ async function runServer(options: any): Promise<void> {
   // MCP stdio mode for AI Coding Assistants (Cursor, Claude Desktop, Antigravity, Windsurf)
   if (options.mcp) {
     const { MCPServer } = await import('../mcp/server.js');
-    const mcp = new MCPServer(network, options.engine || 'auto');
+    let handoffTimeoutSec: number | undefined;
+    if (options.handoffTimeout !== undefined) {
+      handoffTimeoutSec = Number(options.handoffTimeout);
+      if (!Number.isInteger(handoffTimeoutSec) || handoffTimeoutSec < 10) fail(`Invalid --handoff-timeout "${options.handoffTimeout}": expected whole seconds >= 10`);
+    }
+    const mcp = new MCPServer(network, options.engine || 'auto', { handoffTimeoutSec });
     mcp.start();
     return;
   }
@@ -166,6 +183,8 @@ async function runServer(options: any): Promise<void> {
     const page = browser.newPage();
     try {
       await page.goto(options.eval);
+      const challenge = page.challenge();
+      if (challenge?.blocking) console.warn('\n' + formatChallenge(challenge, page.lastChallengeCooldownSec));
       const snapshot = page.getSemanticSnapshot();
       const duration = (performance.now() - startTime).toFixed(1);
 
@@ -235,6 +254,7 @@ addServerOptions(program
   .addHelpText('before', () => renderOrbisBanner('help'))
   .option('--eval <url>', 'Fetch a URL, distill semantic snapshot, and output to console')
   .option('--mcp', 'Run as Model Context Protocol (MCP) server over stdio for Cursor, Claude, Antigravity')
+  .option('--handoff-timeout <sec>', 'MCP: seconds a person gets to complete a CAPTCHA/bot check in the memora_handoff window (default: 300)')
   .action(runServer);
 
 // Server command: `orbis serve --protocol webdriver`
@@ -264,6 +284,8 @@ addNetworkOptions(program
     const page = browser.newPage();
     try {
       await page.goto(url);
+      const challenge = page.challenge();
+      if (challenge?.blocking) process.stderr.write(formatChallenge(challenge, page.lastChallengeCooldownSec) + '\n');
       if (opts.waitMs) {
         await new Promise(r => setTimeout(r, parseInt(opts.waitMs, 10)));
       }

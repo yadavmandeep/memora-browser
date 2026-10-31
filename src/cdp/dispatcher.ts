@@ -5,6 +5,8 @@ import { MemoraElement, MemoraNode } from '../dom/node.js';
 import { CDPRequest, CDPResponse, CDPEvent } from '../types/index.js';
 import { RemoteObjectRegistry, exceptionDetails } from './remote-objects.js';
 import { RobotsBlockedError } from '../network/robots.js';
+import { ChallengeCooldownError } from '../challenge/cooldown.js';
+import { ChallengeDetectedError } from '../challenge/errors.js';
 import { VIEWPORT, installSandboxCompat, isElementRendered, layoutFor, quadFor } from './dom-compat.js';
 import { dispatchKeyEvent, dispatchMouseEvent, insertText } from './input.js';
 
@@ -261,8 +263,11 @@ export class CDPDispatcher {
       }
     } catch (e: any) {
       emit({ method: 'Page.frameStoppedLoading', params: { frameId: page.id } });
-      if (e instanceof RobotsBlockedError) {
+      if (e instanceof RobotsBlockedError || e instanceof ChallengeCooldownError) {
         return { frameId: page.id, loaderId, errorText: 'net::ERR_BLOCKED_BY_CLIENT' };
+      }
+      if (e instanceof ChallengeDetectedError) {
+        return { frameId: page.id, loaderId, errorText: 'net::ERR_BLOCKED_BY_RESPONSE' };
       }
       return { frameId: page.id, loaderId, errorText: netErrorText(e) };
     }
@@ -350,8 +355,8 @@ export class CDPDispatcher {
           return { targetInfos: this.browser.listPages().map(p => this.targetInfo(p)) };
         }
         if (action === 'createTarget') {
-          const newP = this.browser.newPage();
           const contextId = params.browserContextId || DEFAULT_CONTEXT;
+          const newP = this.browser.newPage({ context: contextId });
           this.pageContexts.set(newP.id, contextId);
           this.stateFor(newP);
           if (params.url && params.url !== 'about:blank') {
@@ -420,6 +425,7 @@ export class CDPDispatcher {
         if (action === 'createBrowserContext') {
           const browserContextId = crypto.randomBytes(16).toString('hex').toUpperCase();
           this.browserContexts.add(browserContextId);
+          this.browser.newContext({ id: browserContextId });
           return { browserContextId };
         }
         if (action === 'getBrowserContexts') {
@@ -434,6 +440,7 @@ export class CDPDispatcher {
             emitEvent({ method: 'Target.targetDestroyed', params: { targetId: pageId } });
           }
           this.browserContexts.delete(params.browserContextId);
+          this.browser.closeContext(params.browserContextId);
           return {};
         }
         return {};

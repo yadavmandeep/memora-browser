@@ -3,6 +3,8 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { MemoraBrowser } from '../engine/browser.js';
 import { CDPDispatcher } from './dispatcher.js';
 import { CDPRequest, CDPResponse, CDPEvent } from '../types/index.js';
+import { ChallengeDetectedError } from '../challenge/errors.js';
+import { ChallengeCooldownError } from '../challenge/cooldown.js';
 
 function readJsonBody(req: http.IncomingMessage): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -18,6 +20,26 @@ function readJsonBody(req: http.IncomingMessage): Promise<any> {
     });
     req.on('error', reject);
   });
+}
+
+// Challenge errors get their own status and a machine-readable body instead of a generic 500:
+// stop mode → 409, host in cooldown → 429 with Retry-After
+function challengeErrorResponse(err: any): { status: number; headers: Record<string, string>; body: any } | null {
+  if (err instanceof ChallengeDetectedError) {
+    return {
+      status: 409,
+      headers: {},
+      body: { error: err.message, code: err.code, challenge: err.signal, cooldownSec: err.cooldownSec },
+    };
+  }
+  if (err instanceof ChallengeCooldownError) {
+    return {
+      status: 429,
+      headers: { 'Retry-After': String(err.remainingSec) },
+      body: { error: err.message, code: err.code, host: err.host, remainingSec: err.remainingSec, challenge: err.signal },
+    };
+  }
+  return null;
 }
 
 export class CDPServer {
@@ -163,7 +185,7 @@ export class CDPServer {
       }
 
       res.writeHead(200);
-      res.end(JSON.stringify(page.getSemanticSnapshot({ focusSelector, excludeSelectors }), null, 2));
+      res.end(JSON.stringify({ ...page.getSemanticSnapshot({ focusSelector, excludeSelectors }), challenge: page.lastChallenge }, null, 2));
       return;
     }
 
@@ -222,8 +244,14 @@ export class CDPServer {
             steps: body.steps
           });
           res.writeHead(200);
-          res.end(JSON.stringify({ ...fillResult, snapshot: page.getSemanticSnapshot() }, null, 2));
+          res.end(JSON.stringify({ ...fillResult, challenge: page.lastChallenge, snapshot: page.getSemanticSnapshot() }, null, 2));
         } catch (err: any) {
+          const ch = challengeErrorResponse(err);
+          if (ch) {
+            res.writeHead(ch.status, ch.headers);
+            res.end(JSON.stringify(ch.body, null, 2));
+            return;
+          }
           res.writeHead(500);
           res.end(JSON.stringify({ error: err.message || String(err) }));
         }
@@ -335,8 +363,19 @@ export class CDPServer {
       const page = this.browser.defaultPage;
       page.goto(targetUrl).then(result => {
         res.writeHead(200);
-        res.end(JSON.stringify({ ...result, snapshot: page.getSemanticSnapshot() }, null, 2));
+        res.end(JSON.stringify({
+          ...result,
+          challenge: page.lastChallenge,
+          challengeCooldownSec: page.lastChallengeCooldownSec,
+          snapshot: page.getSemanticSnapshot()
+        }, null, 2));
       }).catch(err => {
+        const ch = challengeErrorResponse(err);
+        if (ch) {
+          res.writeHead(ch.status, ch.headers);
+          res.end(JSON.stringify(ch.body, null, 2));
+          return;
+        }
         res.writeHead(500);
         res.end(JSON.stringify({ error: String(err) }));
       });

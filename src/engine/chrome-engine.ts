@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core';
+import { chromium, type Browser, type BrowserContext, type Page, type Response } from 'playwright-core';
 import { parseHTML } from '../dom/parser.js';
 import { extractSemanticSnapshot } from '../distiller/semantic-tree.js';
 import { convertToMarkdown, MarkdownOptions } from '../distiller/markdown.js';
@@ -9,6 +9,9 @@ import { saveSessionToFile, loadSessionFromFile, validateSessionData } from './s
 import { SemanticPageSnapshot, NetworkOptions, SnapshotOptions, PageDiff, FormFillOptions, FormFillResult, SessionData } from '../types/index.js';
 import { RobotsStore } from '../network/robots.js';
 import { toPlaywrightProxy } from '../network/proxy.js';
+import { detectChallenge, ChallengeSignal } from '../challenge/detector.js';
+import { ChallengeCooldown, DEFAULT_CHALLENGE_COOLDOWN_SEC } from '../challenge/cooldown.js';
+import { ChallengeDetectedError } from '../challenge/errors.js';
 
 export function findSystemChrome(): string | null {
   const candidatePaths = [
@@ -40,8 +43,17 @@ export class ChromeEngine {
   private lastSnapshot: SemanticPageSnapshot | null = null;
   private chromePath: string;
   private network: NetworkOptions;
+  private cooldown: ChallengeCooldown;
+  private lastChallenge: ChallengeSignal | null = null;
+  private lastChallengeCooldownSec: number = 0;
+  private headless: boolean;
+  // Last main-frame document response and a counter of main-frame navigations (human handoff)
+  private mainResponse: { url: string; status: number; headers: Record<string, string> } | null = null;
+  private mainNavigations: number = 0;
 
-  constructor(network: NetworkOptions = {}) {
+  constructor(network: NetworkOptions = {}, options: { headless?: boolean } = {}) {
+    this.headless = options.headless ?? true;
+    this.cooldown = new ChallengeCooldown(network.challengeCooldownSec ?? DEFAULT_CHALLENGE_COOLDOWN_SEC);
     const found = findSystemChrome();
     if (!found) {
       throw new Error('No Google Chrome or Microsoft Edge executable found on this machine.');
@@ -58,7 +70,7 @@ export class ChromeEngine {
     if (!this.browser) {
       this.browser = await chromium.launch({
         executablePath: this.chromePath,
-        headless: true,
+        headless: this.headless,
         args: [
           '--disable-blink-features=AutomationControlled',
           '--no-sandbox',
@@ -70,7 +82,9 @@ export class ChromeEngine {
 
       this.context = await this.browser.newContext({
         viewport: { width: 1280, height: 800 },
-        userAgent: this.network.userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+        // A visible window (human handoff) keeps the installed Chrome's own UA: a pinned UA that
+        // doesn't match the real browser version makes challenges fail for the person solving them
+        userAgent: this.network.userAgent || (this.headless ? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36' : undefined),
         extraHTTPHeaders: this.network.headers,
         ignoreHTTPSErrors: this.network.insecureTls,
       });
@@ -99,6 +113,16 @@ export class ChromeEngine {
         });
       });
 
+      const page = this.page;
+      page.on('response', (resp) => {
+        const req = resp.request();
+        if (!req.isNavigationRequest() || resp.frame() !== page.mainFrame()) return;
+        this.mainResponse = { url: resp.url(), status: resp.status(), headers: resp.headers() };
+      });
+      page.on('framenavigated', (frame) => {
+        if (frame === page.mainFrame()) this.mainNavigations++;
+      });
+
       this.page.on('pageerror', (err) => {
         this.logs.push({
           type: 'error',
@@ -111,8 +135,65 @@ export class ChromeEngine {
     return this.page!;
   }
 
+  public getChallenge(): { signal: ChallengeSignal | null; cooldownSec: number } {
+    return { signal: this.lastChallenge, cooldownSec: this.lastChallengeCooldownSec };
+  }
+
+  private async detectOn(page: Page, resp: Response | null): Promise<void> {
+    this.lastChallenge = resp
+      ? detectChallenge({ url: page.url(), status: resp.status(), headers: await resp.allHeaders(), html: await page.content() })
+      : null;
+    this.lastChallengeCooldownSec = this.cooldown.record(this.lastChallenge);
+    if (this.lastChallenge?.blocking && this.network.onChallenge === 'stop') {
+      throw new ChallengeDetectedError(this.lastChallenge, this.lastChallengeCooldownSec);
+    }
+  }
+
+  // ── Human handoff support ────────────────────────────────────────────────
+  // Opens a URL for a person to look at: no cooldown check, no detection, never throws on a
+  // challenge. The agent-facing goto() keeps its normal policy.
+  public async openForHuman(url: string, timeoutMs: number = 30000): Promise<void> {
+    const page = await this.ensurePage();
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs }).catch(() => {});
+  }
+
+  public get navigationCount(): number {
+    return this.mainNavigations;
+  }
+
+  public isClosed(): boolean {
+    return !this.browser || !this.browser.isConnected() || !this.page || this.page.isClosed();
+  }
+
+  // Challenge signal of what is on screen right now (after the person interacted with it)
+  public async currentChallenge(): Promise<ChallengeSignal | null> {
+    const page = await this.ensurePage();
+    let html = '';
+    try {
+      html = await page.content();
+    } catch {
+      return null; // mid-navigation; caller polls again
+    }
+    const main = this.mainResponse;
+    return detectChallenge({
+      url: page.url(),
+      // Status/headers belong to the document only while the URL still matches it
+      status: main && main.url === page.url() ? main.status : 200,
+      headers: main && main.url === page.url() ? main.headers : {},
+      html,
+    });
+  }
+
+  // Called when a handoff resolves and this engine becomes the agent's engine
+  public adoptAfterHandoff(signal: ChallengeSignal | null): void {
+    this.cooldown.clear();
+    this.lastChallenge = signal;
+    this.lastChallengeCooldownSec = 0;
+  }
+
   public async goto(url: string, timeoutMs: number = 20000): Promise<{ status: number; url: string }> {
     const page = await this.ensurePage();
+    this.cooldown.assertClear(url);
     const resp = await page.goto(url, {
       waitUntil: 'domcontentloaded',
       timeout: this.network.timeoutMs ?? timeoutMs
@@ -129,6 +210,7 @@ export class ChromeEngine {
       // Graceful fallback
     }
 
+    await this.detectOn(page, resp);
     const status = resp ? resp.status() : 200;
     return { status, url: page.url() };
   }
@@ -472,8 +554,10 @@ export class ChromeEngine {
 
   public async reload(): Promise<{ status: number; url: string }> {
     const page = await this.ensurePage();
+    this.cooldown.assertClear(page.url());
     const resp = await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(500);
+    await this.detectOn(page, resp);
     return { status: resp ? resp.status() : 200, url: page.url() };
   }
 

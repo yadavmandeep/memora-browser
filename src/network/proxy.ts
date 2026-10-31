@@ -1,6 +1,7 @@
 import { Agent, undiciFull, type Dispatcher } from './undici.js';
 import { NetworkOptions } from '../types/index.js';
 import { RobotsStore } from './robots.js';
+import { ChallengeCooldown, DEFAULT_CHALLENGE_COOLDOWN_SEC } from '../challenge/cooldown.js';
 import { getStealthHeaders } from '../stealth/fingerprint.js';
 
 const SUPPORTED_PROXY_PROTOCOLS = ['http:', 'https:', 'socks5:', 'socks5h:', 'socks:'];
@@ -114,8 +115,11 @@ export class DispatcherPool {
   private noProxy: string[];
   // Session-wide robots.txt cache, present when --obey-robots is on
   public readonly robots?: RobotsStore;
+  // Session-wide per-host pause after blocking challenges / 429s
+  public readonly cooldown: ChallengeCooldown;
 
   constructor(private options: NetworkOptions) {
+    this.cooldown = new ChallengeCooldown(options.challengeCooldownSec ?? DEFAULT_CHALLENGE_COOLDOWN_SEC);
     this.direct = new Agent({ connect: options.insecureTls ? { rejectUnauthorized: false } : undefined });
     this.noProxy = resolveNoProxy(options);
     if (options.proxy) validateProxyUrl(options.proxy);

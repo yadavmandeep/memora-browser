@@ -150,6 +150,12 @@ export interface NetworkOptions {
   obeyRobots?: boolean;
   // Product token matched against robots.txt User-agent lines (default "MemoraBrowser")
   robotsAgent?: string;
+  // Seconds to pause requests to a host after a blocking challenge or 429 (default 60, 0 disables).
+  // A Retry-After header from the site takes precedence.
+  challengeCooldownSec?: number;
+  // What navigation does on a blocking challenge (interstitial, block page, 429):
+  // 'report' (default) loads it and exposes the signal; 'stop' throws ChallengeDetectedError
+  onChallenge?: 'report' | 'stop';
 }
 
 export interface BrowserOptions {

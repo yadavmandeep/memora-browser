@@ -33,7 +33,9 @@
     "test:selenium": "tsx tests/test-selenium.ts",
     "test:scripts": "tsx tests/test-scripts.ts",
     "test:agents": "tsx tests/test-agent-features.ts",
-    "test:all": "npm run benchmark && npm run test:proxy && npm run test:selenium && npm run test:robots && npm run test:scripts && npm run test:agents"
+    "test:challenge": "tsx tests/test-challenge.ts",
+    "test:concurrency": "tsx tests/test-concurrency.ts",
+    "test:all": "npm run benchmark && npm run test:proxy && npm run test:selenium && npm run test:robots && npm run test:scripts && npm run test:agents && npm run test:challenge && npm run test:concurrency"
   },
   "keywords": [
     "orbis",

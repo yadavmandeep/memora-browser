@@ -1,6 +1,8 @@
 import { OrbisBrowser, MemoraBrowser } from '../engine/browser.js';
 import { MemoraPage, OrbisPage } from '../engine/page.js';
+import { OrbisContext, ContextOptions } from '../engine/context.js';
 import { CDPServer } from '../cdp/server.js';
+import type { ChallengeSignal } from '../challenge/detector.js';
 import {
   BrowserOptions,
   SemanticPageSnapshot,
@@ -93,6 +95,14 @@ export class OrbisAgent {
   }
 
   /**
+   * CAPTCHA / bot-check / rate-limit signal from the last navigation, or null.
+   * Orbis detects these but never solves them; `blocking: true` means the page content is not the real page.
+   */
+  public challenge(): ChallengeSignal | null {
+    return this.page.challenge();
+  }
+
+  /**
    * Get semantic AXTree snapshot with numbered interactive actions (@1, @2, ...).
    */
   public snapshot(options: SnapshotOptions = {}): SemanticPageSnapshot {
@@ -143,6 +153,68 @@ export class OrbisAgent {
       fields,
       submit
     });
+  }
+
+  /**
+   * List all active browser tabs.
+   */
+  public get tabs(): OrbisPage[] {
+    return this.browser.listPages();
+  }
+
+  /**
+   * Open a new tab in the agent's browser session.
+   * If `isolated: true`, tab runs in a dedicated browser context with separate cookies.
+   */
+  public async newTab(url?: string, options?: { isolated?: boolean; switch?: boolean }): Promise<OrbisPage> {
+    const page = this.browser.newPage({ isolated: options?.isolated });
+    if (options?.switch !== false) {
+      this.page = page;
+    }
+    if (url) {
+      await page.goto(url);
+    }
+    return page;
+  }
+
+  /**
+   * Switch the agent's active working page/tab.
+   */
+  public switchTab(tabIdOrIndex: string | number): OrbisPage {
+    const pages = this.browser.listPages();
+    let target: OrbisPage | undefined;
+    if (typeof tabIdOrIndex === 'number') {
+      target = pages[tabIdOrIndex];
+    } else {
+      target = this.browser.getPage(tabIdOrIndex);
+    }
+    if (!target) {
+      throw new Error(`Tab not found: ${tabIdOrIndex}`);
+    }
+    this.page = target;
+    return target;
+  }
+
+  /**
+   * Close a specific tab (or the current active tab) and cleanly reclaim memory.
+   */
+  public closeTab(tabId?: string): boolean {
+    const targetId = tabId || this.page.id;
+    const closed = this.browser.closePage(targetId);
+    if (this.page.id === targetId) {
+      const remaining = this.browser.listPages();
+      if (remaining.length > 0) {
+        this.page = remaining[remaining.length - 1];
+      }
+    }
+    return closed;
+  }
+
+  /**
+   * Create an isolated context for a parallel worker agent with separate cookies and storage.
+   */
+  public newContext(options?: ContextOptions): OrbisContext {
+    return this.browser.newContext(options);
   }
 
   /**

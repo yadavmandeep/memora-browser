@@ -4,6 +4,9 @@ import { parseHTML } from '../dom/parser.js';
 import { V8Sandbox, PageScript, collectRunnableScripts, scriptKind } from '../runtime/v8-sandbox.js';
 import { bundleModuleScript, parseImportMap } from '../runtime/esm-bundler.js';
 import { NetworkFetcher } from '../network/fetcher.js';
+import { CookieJar } from '../network/cookie-jar.js';
+import type { OrbisBrowser } from './browser.js';
+import type { OrbisContext } from './context.js';
 import { extractSemanticSnapshot } from '../distiller/semantic-tree.js';
 import { convertToMarkdown } from '../distiller/markdown.js';
 import { extractStructuredData, StructuredPageData } from '../distiller/structured-data.js';
@@ -22,6 +25,8 @@ import { computePageDiff } from '../distiller/diff.js';
 import { saveSessionToFile, loadSessionFromFile, validateSessionData } from './session.js';
 import { DispatcherPool } from '../network/proxy.js';
 import { LocatorEngine, defaultLocatorEngine } from '../dom/locators.js';
+import { detectChallenge, ChallengeSignal } from '../challenge/detector.js';
+import { ChallengeDetectedError } from '../challenge/errors.js';
 
 export interface NavigateOptions {
   timeoutMs?: number;
@@ -46,6 +51,13 @@ export class MemoraPage {
   private _sandbox: V8Sandbox | null = null;
   public fetcher: NetworkFetcher;
   public lastStatus: number = 200;
+  public lastHeaders: Record<string, string> = {};
+  // CAPTCHA / bot-management / rate-limit signal of the last navigation (null when none)
+  public lastChallenge: ChallengeSignal | null = null;
+  // Seconds requests to the challenged host are paused for (0 when the challenge doesn't block)
+  public lastChallengeCooldownSec: number = 0;
+  public browser?: OrbisBrowser;
+  public context?: OrbisContext;
   private stealth: boolean;
   private network: NetworkOptions;
   private pool?: DispatcherPool;
@@ -56,12 +68,12 @@ export class MemoraPage {
   public lastSnapshot: SemanticPageSnapshot | null = null;
   public locatorEngine: LocatorEngine = defaultLocatorEngine;
 
-  constructor(stealth: boolean = true, network: NetworkOptions = {}, pool?: DispatcherPool) {
+  constructor(stealth: boolean = true, network: NetworkOptions = {}, pool?: DispatcherPool, cookieJar?: CookieJar) {
     this.id = crypto.randomUUID();
     this.stealth = stealth;
     this.network = network;
     this.pool = pool;
-    this.fetcher = new NetworkFetcher(network, pool);
+    this.fetcher = new NetworkFetcher(network, pool, cookieJar);
     this.document = this.adoptDocument(parseHTML('<!DOCTYPE html><html><head><title>Memora Empty Page</title></head><body></body></html>'));
   }
 
@@ -272,9 +284,16 @@ export class MemoraPage {
     return this._sandbox.waitForIdle(timeoutMs);
   }
 
-  // Releases the page's JS context (timers, in-flight requests)
+  // Releases the page's JS context (timers, in-flight requests) and unregisters from browser/context
   public close(): void {
     this._sandbox?.dispose();
+    this.fetcher.abortInFlight();
+    if (this.context) {
+      this.context._detachPage(this.id);
+    }
+    if (this.browser) {
+      this.browser._unregisterPage(this.id);
+    }
   }
 
   private createSandbox(): V8Sandbox {
@@ -297,7 +316,20 @@ export class MemoraPage {
       const resp = await this.fetcher.request(target, { ...request, timeoutMs });
       this.url = resp.url;
       this.lastStatus = resp.status;
+      this.lastHeaders = resp.headers;
+      this.lastChallenge = detectChallenge({ url: resp.url, status: resp.status, headers: resp.headers, html: resp.body });
+      this.lastChallengeCooldownSec = this.fetcher.recordChallenge(this.lastChallenge);
       this.recordHistory(this.url, historyMode);
+
+      // Challenge pages need browser APIs the sandbox doesn't have and never complete; running
+      // their scripts only burns the navigation timeout. Keep the markup for inspection only.
+      if (this.lastChallenge?.blocking) {
+        this.adoptDocument(parseHTML(resp.body));
+        if (this.network.onChallenge === 'stop') {
+          throw new ChallengeDetectedError(this.lastChallenge, this.lastChallengeCooldownSec);
+        }
+        break;
+      }
 
       // Parse HTML into high-speed DOM, then run its scripts (inline + external; SPAs /
       // client-side hydration) in a fresh V8 context
@@ -606,6 +638,11 @@ export class MemoraPage {
     return true;
   }
 
+  // Challenge signal of the last navigation, null when the page loaded without one
+  public challenge(): ChallengeSignal | null {
+    return this.lastChallenge;
+  }
+
   public async reload(): Promise<{ status: number; url: string }> {
     if (!this.url || this.url === 'about:blank') {
       return { status: 200, url: this.url };
@@ -860,10 +897,25 @@ export class MemoraPage {
     this.sandbox.sessionStorage.restore(state.sessionStorage);
   }
 
-  public fork(): MemoraPage {
-    const cloned = new MemoraPage(this.stealth, this.network, this.pool);
+  public fork(options?: { isolated?: boolean }): MemoraPage {
+    const cookieJar = options?.isolated ? undefined : this.fetcher.cookieJar.clone();
+    const cloned = new MemoraPage(this.stealth, this.network, this.pool, cookieJar);
     const state = this.dumpState();
     cloned.restoreState(state);
+
+    if (this.browser) {
+      cloned.browser = this.browser;
+      if (options?.isolated) {
+        const isolatedCtx = this.browser.newContext();
+        cloned.context = isolatedCtx;
+        isolatedCtx._attachPage(cloned);
+      } else if (this.context) {
+        cloned.context = this.context;
+        this.context._attachPage(cloned);
+      }
+      this.browser._registerPage(cloned);
+    }
+
     return cloned;
   }
 }
