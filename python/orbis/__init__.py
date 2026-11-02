@@ -1,5 +1,5 @@
-__version__ = "0.1.2"
+__version__ = "0.2.0"
 
-from memora.agent import OrbisAgent, OrbisSnapshot, MemoraAgent, MemoraSnapshot, ChallengeDetectedError, ChallengeCooldownError
+from memora.agent import OrbisAgent, OrbisSnapshot, MemoraAgent, MemoraSnapshot, ChallengeDetectedError, ChallengeCooldownError, FirewallBlockedError
 
-__all__ = ["__version__", "OrbisAgent", "OrbisSnapshot", "MemoraAgent", "MemoraSnapshot", "ChallengeDetectedError", "ChallengeCooldownError"]
+__all__ = ["__version__", "OrbisAgent", "OrbisSnapshot", "MemoraAgent", "MemoraSnapshot", "ChallengeDetectedError", "ChallengeCooldownError", "FirewallBlockedError"]

@@ -4,6 +4,9 @@ import fs from 'fs';
 import path from 'path';
 import JavaScriptObfuscator from 'javascript-obfuscator';
 
+// package.json is the single source of the version: copy it into src/version.ts and the Python package
+execSync('node scripts/sync-version.mjs', { stdio: 'inherit' });
+
 console.log('🚀 [Build] Step 1: Compiling TypeScript with tsc (no sourcemaps)...');
 // Clean previous dist
 if (fs.existsSync('dist')) {

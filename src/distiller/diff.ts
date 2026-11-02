@@ -45,8 +45,10 @@ export function computePageDiff(
       if (old.text !== act.text) {
         changes.text = { from: old.text, to: act.text };
       }
-      if (old.value !== act.value) {
-        changes.value = { from: old.value, to: act.value };
+      if (old.value !== act.value || old.filled !== act.filled) {
+        changes.value = act.valueHidden
+          ? { from: old.filled ? '[filled]' : '[empty]', to: act.filled ? '[filled]' : '[empty]' }
+          : { from: old.value, to: act.value };
       }
       if (old.disabled !== act.disabled) {
         changes.disabled = { from: old.disabled, to: act.disabled };

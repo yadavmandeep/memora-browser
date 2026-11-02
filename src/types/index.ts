@@ -1,4 +1,6 @@
 export * from '../distiller/structured-data.js';
+import type { DomainPolicy } from '../firewall/domains.js';
+import type { StoredCookie } from '../network/cookie-jar.js';
 
 export interface NodeAttribute {
   name: string;
@@ -32,6 +34,10 @@ export interface InteractiveElement {
   checked?: boolean;
   expanded?: boolean;
   selected?: boolean;
+  // `value` is text the user typed: not printed in action maps or diff summaries (passwords have no value at all)
+  valueHidden?: boolean;
+  // A text field that currently has content
+  filled?: boolean;
 }
 
 export interface SnapshotOptions {
@@ -95,6 +101,8 @@ export interface SessionData {
   createdAt: string;
   url: string;
   cookies: Record<string, string>;
+  // 0.2.0+: every cookie with its site, path and expiry (`cookies` keeps the current site's values for older readers)
+  cookieList?: StoredCookie[];
   localStorage: Record<string, string>;
   sessionStorage: Record<string, string>;
 }
@@ -103,6 +111,7 @@ export interface PageState {
   url: string;
   html: string;
   cookies: Record<string, string>;
+  cookieList?: StoredCookie[];
   localStorage: Record<string, string>;
   sessionStorage: Record<string, string>;
 }
@@ -156,6 +165,12 @@ export interface NetworkOptions {
   // What navigation does on a blocking challenge (interstitial, block page, 429):
   // 'report' (default) loads it and exposes the signal; 'stop' throws ChallengeDetectedError
   onChallenge?: 'report' | 'stop';
+  // Firewall domain rules, enforced on every request in the network layer (navigations, redirects,
+  // clicks, form posts; subresources only against the block list). Set by PromptFirewall.applyToNetwork
+  // or the --allow-domain / --block-domain / --block-sensitive-domains flags.
+  domainPolicy?: DomainPolicy;
+  // Chrome engine: let pages download files (default true, Playwright's default). The firewall sets false.
+  acceptDownloads?: boolean;
 }
 
 export interface BrowserOptions {

@@ -8,6 +8,8 @@ import { memoraAdapter } from '../dom/selector.js';
 import { evaluateXPath, XPathError } from '../dom/xpath.js';
 import { NetworkOptions } from '../types/index.js';
 import { redactProxyUrl } from '../network/proxy.js';
+import { ORBIS_VERSION } from '../version.js';
+import { bindAddress, isCrossSiteBrowserRequest } from '../network/server-guard.js';
 
 // W3C WebDriver Classic (https://www.w3.org/TR/webdriver2/) on top of the native Memora engine,
 // so Selenium / WebdriverIO / Nightwatch suites run without chromedriver.
@@ -25,6 +27,9 @@ export interface WebDriverServerOptions {
   maxSessions?: number;
   // Sessions untouched for this long are closed (a forgotten driver.quit() frees its slot)
   sessionIdleTimeoutMs?: number;
+  // When set, every request must carry this key (x-api-key, Bearer, Basic password or ?apiKey=).
+  // Defaults to ORBIS_API_KEY / MEMORA_API_KEY.
+  apiKey?: string;
 }
 
 class WebDriverError extends Error {
@@ -145,7 +150,7 @@ export function visibleText(el: MemoraElement): string {
   if (el.tagName === 'pre') return out.join('').replace(/^\n+|\n+$/g, '');
   return out.join('')
     .split('\n')
-    .map(line => line.replace(/[ \t\r\fÂ ]+/g, ' ').trim())
+    .map(line => line.replace(/[ \t\r\f ]+/g, ' ').trim())
     .filter(Boolean)
     .join('\n');
 }
@@ -289,6 +294,9 @@ export class WebDriverServer {
       sessionIdleTimeoutMs: 5 * 60 * 1000,
       ...options,
     };
+    if (this.options.apiKey === undefined) {
+      this.options.apiKey = process.env.ORBIS_API_KEY || process.env.MEMORA_API_KEY || undefined;
+    }
     this.registerRoutes();
     this.server = http.createServer((req, res) => {
       this.handle(req, res).catch(e => this.sendError(res, err.unknown(e?.message || String(e))));
@@ -302,8 +310,7 @@ export class WebDriverServer {
   public async start(): Promise<void> {
     await new Promise<void>((resolve, reject) => {
       this.server.once('error', reject);
-      const bindHost = (this.options.host === 'localhost' || this.options.host === '127.0.0.1') ? '0.0.0.0' : this.options.host;
-      this.server.listen(this.options.port, bindHost, () => resolve());
+      this.server.listen(this.options.port, bindAddress(this.options.host), () => resolve());
     });
     if (this.options.sessionIdleTimeoutMs > 0) {
       this.reaper = setInterval(() => {
@@ -314,7 +321,7 @@ export class WebDriverServer {
             this.sessions.delete(id);
           }
         }
-      }, 5000);
+      }, Math.max(100, Math.min(60_000, Math.floor(this.options.sessionIdleTimeoutMs / 2))));
       this.reaper.unref();
     }
   }
@@ -335,11 +342,48 @@ export class WebDriverServer {
     this.routes.push({ method, pattern, keys, handler });
   }
 
+  private hasValidKey(req: http.IncomingMessage, url: URL): boolean {
+    const key = this.options.apiKey as string;
+    const same = (v: string | undefined | null): boolean => {
+      if (!v) return false;
+      const a = crypto.createHash('sha256').update(v).digest();
+      const b = crypto.createHash('sha256').update(key).digest();
+      return crypto.timingSafeEqual(a, b);
+    };
+    const header = req.headers['x-api-key'];
+    if (same(Array.isArray(header) ? header[0] : header)) return true;
+    const auth = String(req.headers.authorization || '');
+    const bearer = /^Bearer\s+(.+)$/i.exec(auth);
+    if (bearer && same(bearer[1].trim())) return true;
+    const basic = /^Basic\s+(.+)$/i.exec(auth);
+    if (basic) {
+      const decoded = Buffer.from(basic[1].trim(), 'base64').toString('utf8');
+      const idx = decoded.indexOf(':');
+      if (idx >= 0 && same(decoded.slice(idx + 1))) return true;
+    }
+    return same(url.searchParams.get('apiKey'));
+  }
+
+  private sendJson(res: http.ServerResponse, status: number, payload: unknown): void {
+    const body = JSON.stringify(payload);
+    res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(body), 'Cache-Control': 'no-cache' });
+    res.end(body);
+  }
+
   private async handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const url = new URL(req.url || '/', 'http://localhost');
     // Accept the legacy Grid prefix so http://host:port/wd/hub URLs keep working
     const path = url.pathname.replace(/^\/wd\/hub/, '').replace(/\/+$/, '') || '/';
     const method = (req.method || 'GET').toUpperCase();
+
+    if (isCrossSiteBrowserRequest(req)) {
+      req.resume();
+      return this.sendJson(res, 403, { value: { error: 'unknown error', message: 'Cross-site browser requests are not allowed', stacktrace: '' } });
+    }
+    if (this.options.apiKey && !this.hasValidKey(req, url)) {
+      req.resume();
+      return this.sendJson(res, 401, { value: { error: 'unknown error', message: 'Missing or wrong API key', stacktrace: '' } });
+    }
 
     const raw = await new Promise<string>((resolve, reject) => {
       let data = '';
@@ -367,7 +411,7 @@ export class WebDriverServer {
         return this.send(res, {
           ready: this.sessions.size < this.options.maxSessions,
           message: this.sessions.size < this.options.maxSessions ? 'Memora WebDriver is ready' : 'Session limit reached',
-          build: { version: '0.1.2', engine: 'memora-native' },
+          build: { version: ORBIS_VERSION, engine: 'memora-native' },
         });
       }
       if (method === 'POST' && path === '/session') {
@@ -445,7 +489,7 @@ export class WebDriverServer {
       sessionId: session.id,
       capabilities: {
         browserName: merged.browserName || 'memora',
-        browserVersion: '0.1.2',
+        browserVersion: ORBIS_VERSION,
         platformName: platform,
         acceptInsecureCerts: !!network.insecureTls,
         pageLoadStrategy: merged.pageLoadStrategy || 'normal',
@@ -992,7 +1036,7 @@ export class WebDriverServer {
     const cookieList = (s: Session) => {
       const page = s.page();
       const domain = page.url.startsWith('http') ? new URL(page.url).hostname : '';
-      return Object.entries(page.fetcher.dumpCookies()).map(([name, value]) => ({
+      return Object.entries(page.fetcher.dumpCookies(/^https?:/.test(page.url) ? page.url : undefined)).map(([name, value]) => ({
         name, value, path: '/', domain, secure: false, httpOnly: false, sameSite: 'Lax',
       }));
     };
@@ -1012,10 +1056,10 @@ export class WebDriverServer {
         const d = String(c.domain).replace(/^\./, '');
         if (host !== d && !host.endsWith('.' + d)) throw err.invalidCookieDomain(`Cookie domain "${c.domain}" does not match ${host}`);
       }
-      page.fetcher.setCookie(c.name, String(c.value));
+      page.fetcher.setCookie(c.name, String(c.value), /^https?:/.test(page.url) ? page.url : undefined);
       return null;
     });
-    this.route('DELETE', '/cookie/:name', (s, p) => { s.page().fetcher.deleteCookie(p.name); return null; });
+    this.route('DELETE', '/cookie/:name', (s, p) => { const pg = s.page(); pg.fetcher.deleteCookie(p.name, /^https?:/.test(pg.url) ? pg.url : undefined); return null; });
     this.route('DELETE', '/cookie', s => { s.page().fetcher.clearCookies(); return null; });
 
     // Actions
@@ -1045,7 +1089,7 @@ function applyTimeouts(target: Timeouts, value: any): void {
   }
 }
 
-// W3C "proxy" capability â†’ engine network options
+// W3C "proxy" capability → engine network options
 function proxyFromCapability(cap: any): NetworkOptions {
   const type = String(cap.proxyType || '').toLowerCase();
   if (type === 'direct') return { proxy: undefined, useEnvProxy: false };

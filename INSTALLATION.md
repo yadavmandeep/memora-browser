@@ -1,21 +1,21 @@
-# <img src="https://orbis.memora.company/orbis-logo.svg" alt="Orbis Logo" width="36" height="36" align="center" /> Orbis by Memora â€” Installation & Setup Guide
+# <img src="https://orbis.memora.company/orbis-logo.svg" alt="Orbis Logo" width="36" height="36" align="center" /> Orbis by Memora — Installation & Setup Guide
 ### *The Web, Working for You. Built for Autonomous Intelligence.*
-> ðŸŒ **Product Portal:** [orbis.memora.company](https://orbis.memora.company) â€¢ **Company:** [memora.company](https://memora.company)  
-> âš¡ **Core Engine:** Memora Browser Engine (MBE) (`memora-orbis`)  
-> *< 15ms Startup | 8.5x Less RAM than Chromium | Up to 95% LLM Token Savings*
+> **Product Portal:** [orbis.memora.company](https://orbis.memora.company) • **Company:** [memora.company](https://memora.company)  
+> **Core Engine:** Memora Browser Engine (MBE) (`memora-orbis`)  
+> *In our tests: 11x faster and 11x less memory than headless Chrome, 33–40% fewer tokens than raw HTML*
 
 ---
 
-## ðŸ“¦ Distribution Architecture (Closed-Source & Pre-Compiled)
+## Distribution Architecture (Closed-Source & Pre-Compiled)
 
 Orbis by Memora is distributed through npm as a **pre-compiled, fully bundled, and minified production release (`memora-orbis`)**:
-- ðŸ›¡ï¸ **Intellectual Property Protection:** Raw TypeScript sources (`src/`), internal test suites (`tests/`), and sourcemap debug traces are completely stripped from distribution tarballs.
-- âš¡ **Zero Compilation Overhead:** End users and CI/CD pipelines never require `tsc`, build toolchains, or local C++ compilers.
-- ðŸš€ **Universal CLI Commands:** Installing `memora-orbis` registers three aliased commands: `orbis`, `memora-orbis`, and `memora-browser`.
+- **Intellectual Property Protection:** Raw TypeScript sources (`src/`), internal test suites (`tests/`), and sourcemap debug traces are completely stripped from distribution tarballs.
+- **Zero Compilation Overhead:** End users and CI/CD pipelines never require `tsc`, build toolchains, or local C++ compilers.
+- **Universal CLI Commands:** Installing `memora-orbis` registers three aliased commands: `orbis`, `memora-orbis`, and `memora-browser`.
 
 ---
 
-## âš¡ 30-Second Stack Selector
+## 30-Second Stack Selector
 
 Choose how you want to use Orbis:
 
@@ -32,7 +32,7 @@ Choose how you want to use Orbis:
 
 ## 1. AI Coding Assistants (MCP Setup)
 
-Orbis acts as a high-speed **Model Context Protocol (MCP)** server over stdio. Your AI assistant gains real-time web browsing with 95% token compression (returns clean Markdown + indexed action maps `[@1]`, `[@2]` instead of 50,000 tokens of raw HTML).
+Orbis acts as a high-speed **Model Context Protocol (MCP)** server over stdio. Your AI assistant gains real-time web browsing with compact output (returns clean Markdown + indexed action maps `[@1]`, `[@2]` instead of 50,000 tokens of raw HTML).
 
 ### A. Claude Desktop
 1. Open your Claude Desktop configuration file:
@@ -51,11 +51,11 @@ Orbis acts as a high-speed **Model Context Protocol (MCP)** server over stdio. Y
      }
    }
    ```
-3. Restart Claude Desktop. The hammer icon ðŸ”¨ will expose Orbis tools: `orbis_browse`, `orbis_act`, `orbis_diff`, `orbis_fill_form`, and `orbis_session`.
+3. Restart Claude Desktop. The tools (hammer) icon will list Orbis tools: `orbis_browse`, `orbis_act`, `orbis_diff`, `orbis_fill_form`, and `orbis_session`.
 
 ### B. Cursor IDE
 1. Open Cursor Settings (`Ctrl + ,` or `Cmd + ,`).
-2. Navigate to **Features** âž” **MCP Servers** âž” Click **Add New MCP Server**.
+2. Navigate to **Features** **MCP Servers** Click **Add New MCP Server**.
 3. Fill in:
    - **Name:** `orbis`
    - **Type:** `command`
@@ -74,6 +74,22 @@ Add to your project's `.mcp.json` or global config:
   }
 }
 ```
+
+---
+
+### D. Prompt Injection Firewall (recommended for agents that browse untrusted sites)
+
+Add firewall flags to the `args` of any MCP config above:
+
+```json
+"args": ["-y", "memora-orbis", "--mcp", "--firewall", "standard", "--audit-log", "/absolute/path/orbis-audit.jsonl"]
+```
+
+- `--firewall standard`: page content is fenced as untrusted data; cookies, storage, JavaScript eval, session files and form submits need your approval; email, banking, identity and cloud-console sites are blocked.
+- Approval prompts use MCP elicitation. If your client does not support it, those actions are refused; allow the ones you need up front, e.g. `--firewall-allow submit`.
+- `--allow-domain <host>` (repeatable) limits where the agent may navigate. Set `ORBIS_AUDIT_KEY` in the server's `env` to HMAC-sign the audit log.
+
+Full reference: [PROMPT_INJECTION_FIREWALL.md](PROMPT_INJECTION_FIREWALL.md).
 
 ---
 
@@ -126,10 +142,10 @@ await agent.fillForm({
 }, /* submit: */ 'text=Sign In');
 
 // Direct interaction with any locator:
-agent.act('@1', 'user@example.com');                  // Ephemeral @ID (AI agents)
-agent.act('label:Email Address', 'user@example.com'); // Playwright label (Tests)
+await agent.act('@1', 'user@example.com');                  // Ephemeral @ID (AI agents)
+await agent.act('label:Email Address', 'user@example.com'); // Playwright label (Tests)
 agent.selectOption('#country', 'India');              // Dropdown selection by label/value
-agent.act('text=Sign In');                            // Playwright text
+await agent.act('text=Sign In');                            // Playwright text
 
 // Check what changed in the DOM
 const diff = agent.diff();
@@ -141,21 +157,21 @@ agent.saveSession('./sessions/auth-state.json');
 await agent.close();
 ```
 
-#### ðŸŽ¯ Universal Locators Reference
+#### Universal Locators Reference
 
 Orbis provides a modular **Strategy Pattern locator engine** that works across all agent commands:
 
 | Locator Strategy | Syntax Pattern | Code Example | Best For |
 | :--- | :--- | :--- | :--- |
-| **Action ID (Default)** | `@<number>` | `agent.act('@4', 'alex@example.com')` | Autonomous AI agents (zero XPath hallucination, minimal tokens) |
-| **Semantic Alias** | `@<name>` | `agent.act('@email', 'alex@example.com')` | AI agent workflows resilient to new DOM insertions |
-| **Playwright Label** | `label:<text>` | `agent.act('label:Email Address', 'alex@...')` | Deterministic test suites (never breaks on layout changes) |
-| **Playwright Text** | `text=<text>` | `agent.act('text=Create Account')` | Buttons, links, and clickable text elements |
-| **Playwright Placeholder** | `placeholder:<text>` | `agent.act('placeholder:Password', '...')` | Modern web forms with placeholder hints |
-| **Playwright Role** | `role:<role>[name="..."]` | `agent.act('role:button[name="Submit"]')` | Accessible ARIA-compliant applications |
-| **Test ID** | `testid:<id>` | `agent.act('testid:submit-btn')` | Cypress, Playwright, and React `data-testid` attributes |
-| **Selenium XPath** | `//...` or `xpath:...` | `agent.act('//button[@type="submit"]')` | Enterprise Selenium test migrations |
-| **Standard CSS** | `#id`, `.class`, `[attr]` | `agent.act('#country-select')` | Standard web automation scripts |
+| **Action ID (Default)** | `@<number>` | `await agent.act('@4', 'alex@example.com')` | Autonomous AI agents (zero XPath hallucination, minimal tokens) |
+| **Semantic Alias** | `@<name>` | `await agent.act('@email', 'alex@example.com')` | AI agent workflows resilient to new DOM insertions |
+| **Playwright Label** | `label:<text>` | `await agent.act('label:Email Address', 'alex@...')` | Deterministic test suites (never breaks on layout changes) |
+| **Playwright Text** | `text=<text>` | `await agent.act('text=Create Account')` | Buttons, links, and clickable text elements |
+| **Playwright Placeholder** | `placeholder:<text>` | `await agent.act('placeholder:Password', '...')` | Modern web forms with placeholder hints |
+| **Playwright Role** | `role:<role>[name="..."]` | `await agent.act('role:button[name="Submit"]')` | Accessible ARIA-compliant applications |
+| **Test ID** | `testid:<id>` | `await agent.act('testid:submit-btn')` | Cypress, Playwright, and React `data-testid` attributes |
+| **Selenium XPath** | `//...` or `xpath:...` | `await agent.act('//button[@type="submit"]')` | Enterprise Selenium test migrations |
+| **Standard CSS** | `#id`, `.class`, `[attr]` | `await agent.act('#country-select')` | Standard web automation scripts |
 | **Dropdown Selection** | `agent.selectOption(target, val)` | `agent.selectOption('#country', 'India')` | Native `<select>` & dynamic ARIA listboxes |
 
 ### Integration with Stagehand
@@ -291,10 +307,10 @@ print(driver.title)
 driver.quit()
 ```
 
-## â“ Troubleshooting & FAQs
+## Troubleshooting & FAQs
 
 ### Q: Does Orbis require Chrome to be installed?
-**A:** No! By default, Orbis runs on its pure TypeScript Native Engine with an in-memory V8 sandbox (<15ms startup, zero GPU). If a site requires heavy GPU WebGL or Chrome-specific extensions, simply pass `--engine chrome` to use system Chromium.
+**A:** No! By default, Orbis runs on its pure TypeScript Native Engine with an in-memory V8 sandbox (no GPU or system browser needed). If a site requires heavy GPU WebGL or Chrome-specific extensions, simply pass `--engine chrome` to use system Chromium.
 
 ### Q: Why do I see `@1`, `@2` instead of CSS selectors?
 **A:** Orbis generates indexed semantic action maps. Instead of sending brittle 50-character CSS or XPath strings to LLMs (which cost tokens and fail often), agents can reliably target `@1`, `@2` directly.
@@ -307,13 +323,13 @@ Run the built-in eval command:
 ```bash
 npx orbis --eval https://example.com
 ```
-If you see the distilled Markdown and Action Map output in < 20ms, your installation is 100% verified!
+If you see the page title, the action map and the Markdown, your installation works.
 
 ---
 
 ---
 
-## ðŸ¢ About Memora
+## About Memora
 
 **[Memora](https://memora.company/)** is an AI organizational memory and knowledge management platform that stops teams from losing what they know.
 

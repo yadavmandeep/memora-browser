@@ -3,7 +3,7 @@ import json
 import urllib.request
 import urllib.parse
 import urllib.error
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Union
 
 
 class ChallengeDetectedError(urllib.error.HTTPError):
@@ -28,6 +28,17 @@ class ChallengeCooldownError(urllib.error.HTTPError):
         self.challenge: Dict[str, Any] = body.get("challenge") or {}
 
 
+class FirewallBlockedError(urllib.error.HTTPError):
+    """The daemon's Orbis firewall refused the navigation (HTTP 403): the URL matches a block rule, is
+    not on the allow list, or is in a blocked sensitive category. ``rule`` names the rule that matched."""
+
+    def __init__(self, err: urllib.error.HTTPError, body: Dict[str, Any]):
+        super().__init__(err.url, err.code, body.get("error", err.msg), err.hdrs, None)
+        self.body = body
+        self.rule: str = body.get("rule", "")
+        self.blocked_url: str = body.get("url", "")
+
+
 def _raise_http_error(err: urllib.error.HTTPError) -> None:
     """Re-raise challenge errors as typed subclasses; everything else unchanged."""
     try:
@@ -39,6 +50,8 @@ def _raise_http_error(err: urllib.error.HTTPError) -> None:
         raise ChallengeDetectedError(err, body) from None
     if code == "ERR_CHALLENGE_COOLDOWN":
         raise ChallengeCooldownError(err, body) from None
+    if code == "ERR_FIREWALL_BLOCKED":
+        raise FirewallBlockedError(err, body) from None
     raise err
 
 
@@ -72,21 +85,23 @@ class OrbisAgent:
     LangChain, CrewAI, AutoGen, and independent LLM agents.
     """
 
-    def __init__(self, base_url: str = "http://localhost:9222", api_key: Optional[str] = None):
+    def __init__(self, base_url: str = "http://localhost:9222", api_key: Optional[str] = None, timeout: float = 60):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key or os.environ.get("ORBIS_API_KEY") or os.environ.get("MEMORA_API_KEY")
+        # Seconds to wait for the daemon; longer than its own 20 s navigation timeout
+        self.timeout = timeout
 
     @classmethod
-    def connect(cls, base_url: str = "http://localhost:9222", api_key: Optional[str] = None) -> "OrbisAgent":
+    def connect(cls, base_url: str = "http://localhost:9222", api_key: Optional[str] = None, timeout: float = 60) -> "OrbisAgent":
         """Connect to a running Orbis Browser daemon."""
-        agent = cls(base_url, api_key=api_key)
+        agent = cls(base_url, api_key=api_key, timeout=timeout)
         # Verify connectivity
         headers = {}
         if agent.api_key:
             headers["x-api-key"] = agent.api_key
             headers["Authorization"] = f"Bearer {agent.api_key}"
         req = urllib.request.Request(f"{agent.base_url}/json/version", headers=headers)
-        with urllib.request.urlopen(req, timeout=5) as res:
+        with urllib.request.urlopen(req, timeout=agent.timeout) as res:
             if res.status != 200:
                 raise ConnectionError(f"Orbis Browser did not respond on {base_url} (HTTP {res.status})")
         return agent
@@ -104,7 +119,7 @@ class OrbisAgent:
             url += f"?{urllib.parse.urlencode(params)}"
         req = urllib.request.Request(url, headers=self._make_headers())
         try:
-            with urllib.request.urlopen(req, timeout=15) as res:
+            with urllib.request.urlopen(req, timeout=self.timeout) as res:
                 return json.loads(res.read().decode("utf-8"))
         except urllib.error.HTTPError as err:
             _raise_http_error(err)
@@ -123,7 +138,7 @@ class OrbisAgent:
             method="POST"
         )
         try:
-            with urllib.request.urlopen(req, timeout=15) as res:
+            with urllib.request.urlopen(req, timeout=self.timeout) as res:
                 return json.loads(res.read().decode("utf-8"))
         except urllib.error.HTTPError as err:
             _raise_http_error(err)
@@ -156,7 +171,7 @@ class OrbisAgent:
         """Return clean, distilled Markdown representation."""
         url = f"{self.base_url}/orbis/snapshot?format=markdown"
         req = urllib.request.Request(url, headers=self._make_headers())
-        with urllib.request.urlopen(req, timeout=10) as res:
+        with urllib.request.urlopen(req, timeout=self.timeout) as res:
             return res.read().decode("utf-8")
 
     def diff(self) -> Dict[str, Any]:
@@ -177,8 +192,12 @@ class OrbisAgent:
         """Select a dropdown option by value or visible text using any locator format."""
         return self._post("/orbis/select-option", {"target": target, "value": value_or_text})
 
-    def fill_form(self, fields: Dict[str, str], submit: bool = True) -> Dict[str, Any]:
-        """Fill multiple fields in one atomic turn and optionally submit."""
+    def fill_form(self, fields: Dict[str, str], submit: Union[bool, str] = False) -> Dict[str, Any]:
+        """Fill multiple fields in one atomic turn and optionally submit.
+
+        ``submit`` may be ``True`` (submit the form) or a locator string
+        identifying the submit button to click.
+        """
         return self._post("/orbis/fill-form", {"fields": fields, "submit": submit})
 
     def save_session(self, file_path: str) -> Dict[str, Any]:

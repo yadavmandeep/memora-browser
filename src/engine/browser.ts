@@ -34,6 +34,10 @@ export class OrbisBrowser {
       ...(this.options.userAgent ? { userAgent: this.options.userAgent } : {}),
       ...(this.options.network || {}),
     };
+    // BrowserOptions.timeout is the default navigation timeout unless network.timeoutMs is set
+    if (this.options.timeout !== undefined && this.options.network.timeoutMs === undefined) {
+      this.options.network.timeoutMs = this.options.timeout;
+    }
     this.pool = new DispatcherPool(this.options.network!);
   }
 

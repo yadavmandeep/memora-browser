@@ -1,7 +1,7 @@
 # <img src="https://orbis.memora.company/orbis-logo.svg" alt="Orbis Logo" width="34" height="34" align="center" /> Orbis by Memora — Python SDK
 > **The Agentic Browser. Built for Autonomous Intelligence.**  
-> 🌐 **Website:** [orbis.memora.company](https://orbis.memora.company) • **Company:** [memora.company](https://memora.company)  
-> ⚡ **Core Engine:** Memora Browser Engine (MBE)
+> **Website:** [orbis.memora.company](https://orbis.memora.company) • **Company:** [memora.company](https://memora.company)  
+> **Core Engine:** Memora Browser Engine (MBE)
 
 Official Python SDK for **Orbis by Memora**, the agent-native, ultra-lightweight headless browser engine.
 
@@ -64,7 +64,27 @@ tools = agent.to_langchain_tools()
 # Exported LangChain tools: memora_navigate, memora_act, memora_diff
 ```
 
-## 🏢 About Memora
+## Prompt Injection Firewall (domain rules)
+
+Start the daemon with firewall domain rules; refused navigations raise `FirewallBlockedError`:
+
+```bash
+npx memora-orbis --port 9222 --block-sensitive-domains --allow-domain docs.example.com
+```
+
+```python
+from orbis import OrbisAgent, FirewallBlockedError
+
+agent = OrbisAgent("http://localhost:9222")
+try:
+    agent.goto("https://mail.google.com/")
+except FirewallBlockedError as e:
+    print(e.rule, e.blocked_url)   # domain:sensitive:email https://mail.google.com/
+```
+
+Action gates and content isolation run in the MCP server and the TypeScript SDK; see PROMPT_INJECTION_FIREWALL.md in the main package.
+
+## About Memora
 
 **[Memora](https://memora.company/)** is an AI organizational memory and knowledge management platform. It connects conversations, code, tickets, documents, and meetings into a shared, verifiable intelligence layer.
 

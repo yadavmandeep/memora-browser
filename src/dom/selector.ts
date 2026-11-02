@@ -116,4 +116,20 @@ export function selectAll(selector: string, root: MemoraNode): MemoraElement[] {
   }
 }
 
-setSelectorEngine({ selectOne, selectAll });
+// Compiled selectors, reused: matches()/closest() run the same few selectors on many elements
+const compiled = new Map<string, (el: MemoraElement) => boolean>();
+export function matchesSelector(elem: MemoraElement, selector: string): boolean {
+  let test = compiled.get(selector);
+  if (!test) {
+    try {
+      test = CSSselect.compile(selector, { adapter: memoraAdapter }) as unknown as (el: MemoraElement) => boolean;
+    } catch {
+      test = () => false;
+    }
+    if (compiled.size > 500) compiled.clear();
+    compiled.set(selector, test);
+  }
+  return test(elem);
+}
+
+setSelectorEngine({ selectOne, selectAll, matches: matchesSelector });

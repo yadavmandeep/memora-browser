@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { build, transformSync, Plugin } from 'esbuild';
 import { MemoraDocument } from '../dom/node.js';
 import { NetworkFetcher } from '../network/fetcher.js';
@@ -9,6 +12,26 @@ export interface ModuleBundleOptions {
   fetcher: NetworkFetcher;
   timeoutMs?: number;
   importMap?: Record<string, string>;
+}
+
+// esbuild treats import()/require() with a computed path ("./" + name) as a glob and reads every
+// matching file from the local disk, outside any plugin. For page code that means a website could
+// pull files from the Orbis process's machine into its bundle (and then fetch() them out), or crash the
+// build. Non-literal calls are rewritten to helpers that reject at runtime, like an unresolvable import.
+const NON_LITERAL_DYNAMIC = /(?<![.\w$])(import|require)(\s*)\((?!\s*(['"])[^'"\n\\]*\3\s*\))/g;
+const DYNAMIC_HELPERS =
+  'const __orbisImport = (s) => Promise.reject(new Error("Orbis: dynamic import(" + String(s) + ") with a computed path is not supported"));\n' +
+  'const __orbisRequire = (s) => { throw new Error("Orbis: require(" + String(s) + ") with a computed path is not supported"); };\n';
+
+export function neutralizeDynamicImports(code: string): string {
+  return code.replace(NON_LITERAL_DYNAMIC, (_m, kind: string, space: string) => `${kind === 'import' ? '__orbisImport' : '__orbisRequire'}${space}(`);
+}
+
+// Working directory for esbuild: an empty folder, so anything that still resolves against the disk finds nothing
+let emptyDir: string | null = null;
+function emptyWorkingDir(): string {
+  if (!emptyDir || !fs.existsSync(emptyDir)) emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'orbis-esm-'));
+  return emptyDir;
 }
 
 export function transformInlineModule(code: string): string {
@@ -55,7 +78,8 @@ export function parseImportMap(doc: MemoraDocument, baseUrl: string): Record<str
 export async function bundleModuleScript(options: ModuleBundleOptions): Promise<string> {
   const { entryCode, entryUrl, baseUrl, fetcher, timeoutMs = 10000, importMap = {} } = options;
   const cache = new Map<string, string>();
-  cache.set('<entry>', entryCode);
+  const safeEntry = neutralizeDynamicImports(entryCode);
+  cache.set('<entry>', safeEntry);
 
   const memoraResolverPlugin: Plugin = {
     name: 'memora-esm-resolver',
@@ -87,7 +111,7 @@ export async function bundleModuleScript(options: ModuleBundleOptions): Promise<
       // 2. Load module source code
       buildContext.onLoad({ filter: /.*/, namespace: 'memora' }, async args => {
         if (args.path === '<entry>') {
-          return { contents: entryCode, loader: 'js' };
+          return { contents: safeEntry, loader: 'js' };
         }
 
         const cached = cache.get(args.path);
@@ -103,8 +127,9 @@ export async function bundleModuleScript(options: ModuleBundleOptions): Promise<
           });
 
           if (resp.status >= 200 && resp.status < 300) {
-            cache.set(args.path, resp.body);
-            return { contents: resp.body, loader: 'js' };
+            const contents = neutralizeDynamicImports(resp.body);
+            cache.set(args.path, contents);
+            return { contents, loader: 'js' };
           }
           throw new Error(`Failed to fetch module ${args.path}: HTTP ${resp.status}`);
         }
@@ -121,6 +146,7 @@ export async function bundleModuleScript(options: ModuleBundleOptions): Promise<
     format: 'esm',
     target: 'es2022',
     platform: 'browser',
+    absWorkingDir: emptyWorkingDir(),
     define: {
       'import.meta.url': JSON.stringify(entryUrl)
     },
@@ -128,5 +154,5 @@ export async function bundleModuleScript(options: ModuleBundleOptions): Promise<
   });
 
   const bundledCode = result.outputFiles[0].text;
-  return `(async () => {\n${bundledCode}\n})()`;
+  return `(async () => {\n${DYNAMIC_HELPERS}${bundledCode}\n})()`;
 }

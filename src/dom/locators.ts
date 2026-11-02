@@ -8,6 +8,55 @@ import { SemanticPageSnapshot } from '../types/index.js';
 export interface LocatorContext {
   document: MemoraDocument;
   getSemanticSnapshot?: () => SemanticPageSnapshot;
+  // The snapshot the caller last saw (its action IDs are the ones an agent refers to)
+  lastSnapshot?: () => SemanticPageSnapshot | null;
+}
+
+// Implicit ARIA roles of native elements (the subset agents ask for)
+const IMPLICIT_ROLES: Record<string, string> = {
+  link: 'a[href], area[href]',
+  button: 'button, input[type="button"], input[type="submit"], input[type="reset"], input[type="image"], summary',
+  textbox: 'input:not([type]), input[type="text"], input[type="email"], input[type="tel"], input[type="url"], input[type="search"], input[type="password"], textarea',
+  searchbox: 'input[type="search"]',
+  checkbox: 'input[type="checkbox"]',
+  radio: 'input[type="radio"]',
+  combobox: 'select',
+  listbox: 'select[multiple]',
+  option: 'option',
+  heading: 'h1, h2, h3, h4, h5, h6',
+  img: 'img[alt]',
+  list: 'ul, ol',
+  listitem: 'li',
+  navigation: 'nav',
+  main: 'main',
+  form: 'form',
+  table: 'table',
+  row: 'tr',
+  cell: 'td',
+  dialog: 'dialog',
+};
+
+// Accessible name, simplified: aria-label, aria-labelledby, <label>, alt/title/placeholder/value, text
+export function accessibleName(el: MemoraElement, doc: MemoraDocument): string {
+  const aria = el.getAttribute('aria-label');
+  if (aria) return aria.trim();
+  const labelledby = el.getAttribute('aria-labelledby');
+  if (labelledby) {
+    const t = labelledby.split(/\s+/).map((id) => doc.getElementById?.(id)?.textContent || '').join(' ').trim();
+    if (t) return t;
+  }
+  const id = el.getAttribute('id');
+  if (id) {
+    for (const lbl of doc.querySelectorAll('label')) {
+      if (lbl.getAttribute('for') === id) return lbl.textContent.trim();
+    }
+  }
+  let p: MemoraNode | null = el.parentNode;
+  while (p && p instanceof MemoraElement) {
+    if (p.tagName.toLowerCase() === 'label') return p.textContent.trim();
+    p = p.parentNode;
+  }
+  return (el.getAttribute('alt') || el.getAttribute('title') || el.getAttribute('placeholder') || el.getAttribute('value') || el.textContent || '').trim();
 }
 
 /**
@@ -32,6 +81,15 @@ export class ActionIdStrategy implements LocatorStrategy {
 
   public resolve(selector: string, ctx: LocatorContext): MemoraElement | null {
     const trimmed = selector.trim();
+
+    // IDs refer to the snapshot the caller saw (focused / filtered snapshots number differently)
+    const seen = ctx.lastSnapshot?.()?.actions.find(a => a.actionId === trimmed);
+    if (seen) {
+      try {
+        const el = ctx.document.querySelector(seen.selector);
+        if (el) return el;
+      } catch {}
+    }
     if (!ctx.getSemanticSnapshot) return null;
 
     const snapshot = ctx.getSemanticSnapshot();
@@ -79,23 +137,36 @@ export class SemanticAliasStrategy implements LocatorStrategy {
   public resolve(selector: string, ctx: LocatorContext): MemoraElement | null {
     if (!ctx.getSemanticSnapshot) return null;
     const alias = selector.trim().slice(1).toLowerCase();
-    const snapshot = ctx.getSemanticSnapshot();
+    const snapshot = ctx.lastSnapshot?.() ?? ctx.getSemanticSnapshot();
 
-    const match = snapshot.actions.find(a => {
+    // Best match wins, not the first: @email should be the email field, not a link "Email us"
+    const score = (a: SemanticPageSnapshot['actions'][number]): number => {
       const name = (a.name || '').toLowerCase();
       const text = (a.text || '').toLowerCase();
       const placeholder = (a.placeholder || '').toLowerCase();
       const sel = (a.selector || '').toLowerCase();
-      return (
-        name === alias ||
-        placeholder === alias ||
-        text === alias ||
-        name.includes(alias) ||
-        placeholder.includes(alias) ||
-        sel.includes(alias) ||
-        text.includes(alias)
-      );
-    });
+      const type = (a.type || '').toLowerCase();
+      let s = 0;
+      if (name === alias) s = 100;
+      else if (sel.includes('#' + alias)) s = 95;
+      else if (a.isInput && type === alias) s = 90;
+      else if (placeholder === alias || text === alias) s = 80;
+      else if (name.includes(alias)) s = 70;
+      else if (placeholder.includes(alias)) s = 65;
+      else if (sel.includes(alias)) s = 50;
+      else if (text.includes(alias)) s = 30;
+      if (s && a.isInput) s += 5; // fields before links/buttons with similar words
+      return s;
+    };
+    let match: SemanticPageSnapshot['actions'][number] | undefined;
+    let best = 0;
+    for (const a of snapshot.actions) {
+      const s = score(a);
+      if (s > best) {
+        best = s;
+        match = a;
+      }
+    }
 
     if (match) {
       try {
@@ -213,11 +284,13 @@ export class LabelLocatorStrategy implements LocatorStrategy {
       }
     }
 
-    // B. Match aria-label or aria-labelledby
-    try {
-      const ariaMatch = ctx.document.querySelector(`[aria-label*="${labelQuery.replace(/"/g, '\\"')}"]`);
-      if (ariaMatch) return ariaMatch;
-    } catch {}
+    // B. Match aria-label (case-insensitive, like the <label> text above) or aria-labelledby
+    for (const el of ctx.document.querySelectorAll('[aria-label]')) {
+      if ((el.getAttribute('aria-label') || '').toLowerCase().includes(labelQuery)) return el;
+    }
+    for (const el of ctx.document.querySelectorAll('[aria-labelledby]')) {
+      if (accessibleName(el, ctx.document).toLowerCase().includes(labelQuery)) return el;
+    }
 
     return null;
   }
@@ -295,23 +368,23 @@ export class RoleLocatorStrategy implements LocatorStrategy {
     const roleMatch = selector.trim().match(/^role[:=]([a-zA-Z]+)(?:\[name=["']?([^"']+)["']?\])?/);
     if (!roleMatch) return null;
 
-    const [, roleName, accessibleName] = roleMatch;
+    const [, roleName, wantedName] = roleMatch;
+    const role = roleName.toLowerCase();
     try {
-      const candidates = ctx.document.querySelectorAll(`[role="${roleName}"], ${roleName}`);
-      if (!accessibleName) {
+      // Explicit role="..." plus native elements whose implicit role it is (a[href] is a link)
+      const implicit = IMPLICIT_ROLES[role];
+      const candidates = ctx.document.querySelectorAll(implicit ? `[role="${role}"], ${implicit}` : `[role="${role}"]`)
+        // An explicit different role overrides the implicit one
+        .filter((c) => !c.getAttribute('role') || c.getAttribute('role')!.toLowerCase() === role);
+      if (!wantedName) {
         return candidates.length > 0 ? candidates[0] : null;
       }
-      const accLower = accessibleName.toLowerCase();
+      const accLower = wantedName.toLowerCase();
       for (const cand of candidates) {
-        const txt = (
-          cand.getAttribute('aria-label') ||
-          cand.getAttribute('value') ||
-          cand.textContent ||
-          ''
-        )
-          .trim()
-          .toLowerCase();
-        if (txt.includes(accLower)) return cand;
+        if (accessibleName(cand, ctx.document).toLowerCase() === accLower) return cand;
+      }
+      for (const cand of candidates) {
+        if (accessibleName(cand, ctx.document).toLowerCase().includes(accLower)) return cand;
       }
     } catch {}
 

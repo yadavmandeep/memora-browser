@@ -81,6 +81,19 @@ const routes: Record<string, (req: IncomingMessage, res: ServerResponse) => void
   },
 
   // robots.txt disallows /private/: the script must not be fetched, later scripts still run
+  // Computed import()/require() paths must never be resolved against the local disk (esbuild globs)
+  '/disk-import.html': (_q, res) => html(res, `<html><head><title>start</title></head><body><script type="module">
+    const f = '.json';
+    const out = [];
+    const t = (p) => p.then(() => out.push('LEAK'), () => out.push('blocked'));
+    await t(import('./package' + f));
+    await t(import('../memora-browser/package' + f));
+    await t(import(\`./package\${f}\`));
+    try { require('./package' + f); out.push('LEAK'); } catch { out.push('blocked'); }
+    out.push('literal:' + (await import('/js/lib.mjs')).answer);
+    document.title = out.join(',');
+  </script></body></html>`),
+  '/js/lib.mjs': (_q, res) => { res.writeHead(200, { 'content-type': 'text/javascript' }); res.end('export const answer = 42;'); },
   '/robots-page.html': (_q, res) => html(res, `<html><body>
     <script>window.log = [];</script>
     <script src="/private/secret.js"></script>
@@ -208,6 +221,24 @@ await test('--obey-robots blocks a disallowed script; later scripts still run', 
   assert.ok(!hits.includes('/private/secret.js'), 'blocked script must not be requested');
   assert.match(page.getLogs().map(l => l.text).join('\n'), /Failed to load script .*secret\.js: Blocked by robots\.txt/);
   robotsBrowser.close();
+});
+
+await test('module scripts cannot read local files via computed import()/require() paths', async () => {
+  const page = browser.newPage();
+  await page.goto(`${base}/disk-import.html`);
+  assert.equal(page.title(), 'blocked,blocked,blocked,blocked,literal:42');
+});
+
+await test('snapshot of a page with thousands of links stays fast', async () => {
+  // Used to scan the whole document for every element (minutes, process frozen on large docs pages)
+  const page = browser.newPage();
+  const links = Array.from({ length: 4000 }, (_, i) => `<li class="item"><a class="ref" href="/p${i}">Link ${i}</a></li>`).join('');
+  page.setContent(`<html><body><nav class="skip-link"></nav><ul>${links}</ul></body></html>`, base);
+  const t0 = Date.now();
+  const snap = page.getSemanticSnapshot();
+  assert.ok(Date.now() - t0 < 3000, `snapshot took ${Date.now() - t0} ms`);
+  assert.equal(snap.interactiveCount, 4000);
+  assert.equal(page.resolveElement(snap.actions[1234].selector)?.textContent, 'Link 1234');
 });
 
 browser.close();

@@ -47,6 +47,112 @@ export class MemoraStorage {
   }
 }
 
+// ── Host code-generation guard ──────────────────────────────────────────────
+// Page code runs in a vm context, but the DOM and the APIs it uses are host (Node.js) objects. Every host
+// function's `.constructor` is the host's Function, so `document.constructor.constructor('return process')()`
+// would run code in the host. The guard replaces `.constructor` on the host's function prototypes with a
+// stand-in that refuses to compile code. The global `Function` / `eval` bindings of the host are untouched,
+// so the application's own code keeps working; page code has no reference to them.
+let codeGenGuardInstalled = false;
+function installCodeGenGuard(): void {
+  if (codeGenGuardInstalled) return;
+  codeGenGuardInstalled = true;
+  const ctors: Array<Function> = [
+    Function,
+    Object.getPrototypeOf(async function () {}).constructor,
+    Object.getPrototypeOf(function* () {}).constructor,
+    Object.getPrototypeOf(async function* () {}).constructor,
+  ];
+  for (const Ctor of ctors) {
+    const proto = (Ctor as any).prototype;
+    const name = Ctor.name;
+    const guard = ({
+      [name]: function () {
+        throw new EvalError(`Orbis: compiling code with the ${name} constructor is disabled (page scripts cannot reach the host)`);
+      },
+    } as any)[name];
+    Object.defineProperty(guard, 'prototype', { value: proto });
+    Object.defineProperty(proto, 'constructor', { value: guard, writable: false, enumerable: false, configurable: false });
+  }
+}
+
+// XMLHttpRequest on top of the page's fetch() (same proxy, cookies, robots and firewall rules), and a
+// History object; both created inside the page realm so page code only sees page-realm objects.
+const WEB_APIS_SCRIPT = new vm.Script(`(() => {
+  const g = globalThis;
+  if (!g.XMLHttpRequest) {
+    class XMLHttpRequest {
+      constructor() {
+        this.readyState = 0; this.status = 0; this.statusText = ''; this.responseText = ''; this.response = '';
+        this.responseType = ''; this.responseURL = ''; this.timeout = 0; this.withCredentials = false;
+        this.onreadystatechange = null; this.onload = null; this.onerror = null; this.onloadend = null;
+        this.onabort = null; this.ontimeout = null; this.upload = { addEventListener() {}, removeEventListener() {} };
+        this._h = {}; this._l = {}; this._rh = {};
+      }
+      open(method, url) { this._m = String(method || 'GET').toUpperCase(); this._u = String(url); this.readyState = 1; this._fire('readystatechange'); }
+      setRequestHeader(k, v) { this._h[k] = String(v); }
+      getResponseHeader(k) { const v = this._rh[String(k).toLowerCase()]; return v === undefined ? null : v; }
+      getAllResponseHeaders() { return Object.keys(this._rh).map((k) => k + ': ' + this._rh[k]).join('\\r\\n'); }
+      overrideMimeType() {}
+      addEventListener(t, f) { (this._l[t] = this._l[t] || []).push(f); }
+      removeEventListener(t, f) { this._l[t] = (this._l[t] || []).filter((x) => x !== f); }
+      _fire(t) {
+        const ev = { type: t, target: this, currentTarget: this };
+        const h = this['on' + t];
+        if (typeof h === 'function') { try { h.call(this, ev); } catch (e) { console.error(String(e)); } }
+        for (const f of this._l[t] || []) { try { f.call(this, ev); } catch (e) { console.error(String(e)); } }
+      }
+      abort() { this._aborted = true; if (this._ac) this._ac.abort(); this.readyState = 0; this._fire('abort'); this._fire('loadend'); }
+      send(body) {
+        const ac = new AbortController(); this._ac = ac;
+        const init = { method: this._m, headers: this._h, signal: ac.signal };
+        if (body !== undefined && body !== null && this._m !== 'GET' && this._m !== 'HEAD') init.body = body;
+        fetch(this._u, init).then(async (r) => {
+          this.status = r.status; this.statusText = r.statusText; this.responseURL = r.url || this._u;
+          r.headers.forEach((v, k) => { this._rh[String(k).toLowerCase()] = v; });
+          this.readyState = 2; this._fire('readystatechange');
+          const text = await r.text();
+          this.responseText = text;
+          if (this.responseType === 'json') { try { this.response = JSON.parse(text); } catch (e) { this.response = null; } }
+          else this.response = text;
+          this.readyState = 4; this._fire('readystatechange'); this._fire('load'); this._fire('loadend');
+        }, () => {
+          if (this._aborted) return;
+          this.readyState = 4; this._fire('readystatechange'); this._fire('error'); this._fire('loadend');
+        });
+      }
+    }
+    XMLHttpRequest.UNSENT = 0; XMLHttpRequest.OPENED = 1; XMLHttpRequest.HEADERS_RECEIVED = 2; XMLHttpRequest.LOADING = 3; XMLHttpRequest.DONE = 4;
+    g.XMLHttpRequest = XMLHttpRequest;
+  }
+  if (!g.history) {
+    const setUrl = g.__orbisSetUrl;
+    delete g.__orbisSetUrl;
+    const entries = [{ state: null, url: location.href }];
+    let idx = 0;
+    const resolve = (url) => (url === undefined || url === null ? location.href : new URL(String(url), location.href).href);
+    g.history = {
+      get length() { return entries.length; },
+      get state() { return entries[idx].state; },
+      scrollRestoration: 'auto',
+      pushState(state, _title, url) { const u = resolve(url); entries.splice(idx + 1); entries.push({ state, url: u }); idx++; setUrl(u); },
+      replaceState(state, _title, url) { const u = resolve(url); entries[idx] = { state, url: u }; setUrl(u); },
+      back() { this.go(-1); },
+      forward() { this.go(1); },
+      go(n) {
+        n = Number(n) || 0;
+        if (n === 0) { location.reload(); return; }
+        const j = idx + n;
+        if (j < 0 || j >= entries.length) return;
+        idx = j; setUrl(entries[idx].url);
+        const ev = { type: 'popstate', state: entries[idx].state };
+        try { if (typeof g.onpopstate === 'function') g.onpopstate(ev); } catch (e) { console.error(String(e)); }
+        if (typeof g.dispatchEvent === 'function') g.dispatchEvent(ev);
+      },
+    };
+  }
+})();`, { filename: 'orbis-web-apis.js' });
+
 export interface V8ConsoleLog {
   type: 'log' | 'warn' | 'error' | 'info';
   text: string;
@@ -56,6 +162,15 @@ export interface V8ConsoleLog {
 export interface SandboxOptions {
   // Replaces the global fetch inside the page (proxy / cookie aware)
   fetch?: (input: any, init?: any) => Promise<any>;
+  // Storage of the page's origin, kept by the page so it survives navigation
+  localStorage?: MemoraStorage;
+  sessionStorage?: MemoraStorage;
+  // navigator.userAgent (follows --user-agent)
+  userAgent?: string;
+  // history.pushState / replaceState changed the URL without loading a page
+  onUrlChange?: (url: string) => void;
+  // Every console call of the page (CDP Runtime.consoleAPICalled)
+  onConsole?: (type: string, args: any[]) => void;
 }
 
 // Context setup scripts are identical for every page: compile them once and only run
@@ -196,13 +311,17 @@ export class V8Sandbox {
   private wake: (() => void) | null = null;
   private readonly abortController = new AbortController();
   private disposed = false;
-  public readonly localStorage: MemoraStorage = new MemoraStorage();
-  public readonly sessionStorage: MemoraStorage = new MemoraStorage();
+  public readonly localStorage: MemoraStorage;
+  public readonly sessionStorage: MemoraStorage;
   public readonly logs: V8ConsoleLog[] = [];
+  private consoleHook?: (type: string, args: any[]) => void;
 
   constructor(document: MemoraDocument, initialUrl: string = 'about:blank', enableStealth: boolean = true, options: SandboxOptions = {}) {
     this.document = document;
     this.url = new URL(initialUrl);
+    this.consoleHook = options.onConsole;
+    this.localStorage = options.localStorage ?? new MemoraStorage();
+    this.sessionStorage = options.sessionStorage ?? new MemoraStorage();
 
 
     const self = this;
@@ -231,7 +350,7 @@ export class V8Sandbox {
     };
 
     const navigatorObj = {
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+      userAgent: options.userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
       language: 'en-US',
       languages: ['en-US', 'en'],
       webdriver: false,
@@ -284,11 +403,21 @@ export class V8Sandbox {
     };
     const rawFetch = options.fetch || ((input: any, init?: any) => fetch(input, init));
 
+    // Used once by the History object, then removed from the page's global scope
+    (sandbox as any).__orbisSetUrl = (u: string) => {
+      try {
+        self.url = new URL(String(u), self.url);
+        options.onUrlChange?.(self.url.href);
+      } catch {}
+    };
+
+    installCodeGenGuard();
     this.context = vm.createContext(sandbox);
     installRejectionGuard();
     contextPromiseProtos.set(vm.runInContext('Promise.prototype', this.context), this);
     // window/self/top/parent aliases + window EventTarget, compiled once per process
     PRELUDE_SCRIPT.runInContext(this.context);
+    WEB_APIS_SCRIPT.runInContext(this.context);
 
     // Lets the DOM run inline handlers like onclick="..." inside this page's context
     this.document.inlineHandlerCompiler = (code: string) =>
@@ -382,6 +511,9 @@ export class V8Sandbox {
 
   public log(type: V8ConsoleLog['type'], args: any[]): void {
     this.logs.push({ type, text: args.map(formatLogArg).join(' '), timestamp: Date.now() });
+    try {
+      this.consoleHook?.(type, args);
+    } catch {}
   }
 
   public reportError(prefix: string, err: any): void {

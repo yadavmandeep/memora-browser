@@ -770,7 +770,7 @@ async function runBenchmarkSuite() {
     submitClicked = true;
   });
 
-  const clickResult = page.click(submitAction.actionId);
+  const clickResult = await page.click(submitAction.actionId);
   console.log(`  ✓ page.click('${submitAction.actionId}'):`, {
     success: clickResult,
     clickListenerTriggered: submitClicked
@@ -798,7 +798,7 @@ async function runBenchmarkSuite() {
       });
     }
 
-    page.click(secondCartAction.actionId);
+    await page.click(secondCartAction.actionId);
     console.log(`    Clicked second 'Add to Cart' action [${secondCartAction.actionId}]: Triggered button id = "${clickedId}"`);
     if (clickedId !== 'add-cart-102') {
       throw new Error(`Disambiguation failed: expected to click 'add-cart-102' but triggered "${clickedId}"`);

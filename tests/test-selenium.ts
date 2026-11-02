@@ -392,7 +392,17 @@ async function main() {
   console.log('▶ Proxy');
   await test('W3C proxy capability routes the session through the proxy', async () => {
     const seen: string[] = [];
-    const proxy = http.createServer();
+    // Forward proxy: plain absolute-URL requests for http://, CONNECT tunnels for https://
+    const proxy = http.createServer((req, res) => {
+      seen.push(req.url || '');
+      const target = new URL(req.url || '/');
+      const up = http.request({ host: target.hostname, port: target.port || 80, path: target.pathname + target.search, method: req.method, headers: req.headers }, (r) => {
+        res.writeHead(r.statusCode || 502, r.headers);
+        r.pipe(res);
+      });
+      up.on('error', () => { res.writeHead(502); res.end(); });
+      req.pipe(up);
+    });
     proxy.on('connect', (req, socket: import('node:net').Socket, head) => {
       seen.push(req.url || '');
       const [host, port] = (req.url || '').split(':');
@@ -410,7 +420,7 @@ async function main() {
     try {
       await proxied.get(`${BASE}/`);
       eq(await proxied.getTitle(), 'Quotes Home', 'page through proxy');
-      assert(seen.some(t => t === `127.0.0.1:${sitePort}`), `proxy saw ${JSON.stringify(seen)}`);
+      assert(seen.some(t => t === `127.0.0.1:${sitePort}` || t.startsWith(`http://127.0.0.1:${sitePort}/`)), `proxy saw ${JSON.stringify(seen)}`);
       const before = seen.length;
       await driver_noproxy_check();
       eq(seen.length, before, 'other sessions stay direct');

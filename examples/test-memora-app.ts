@@ -128,7 +128,7 @@ async function testMemoraProductionApp() {
   console.log('\n🤖 [Step 7]: AI Agent Clicking [@6] ("Ask Living Memory")...');
   const actionBtn = snapshot.actions.find(a => a.text.includes('Ask Living Memory'));
   if (actionBtn) {
-    const clicked = page.click(actionBtn.actionId);
+    const clicked = await page.click(actionBtn.actionId);
     console.log(`  ✓ Action [${actionBtn.actionId}] Clicked: ${clicked}`);
   }
 

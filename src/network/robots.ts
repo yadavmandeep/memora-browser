@@ -25,6 +25,8 @@ interface Rule {
 interface Group {
   agents: string[];
   rules: Rule[];
+  // Crawl-delay in seconds (non-standard but widely used)
+  crawlDelay?: number;
 }
 
 export class RobotsBlockedError extends Error {
@@ -66,6 +68,9 @@ function compile(pattern: string): RegExp {
   return new RegExp(`^${source}${anchored ? '$' : ''}`);
 }
 
+// Upper bound for Crawl-delay: a robots.txt must not be able to stall the agent for hours
+const MAX_CRAWL_DELAY_SEC = 60;
+
 export class RobotsRules {
   constructor(private readonly groups: Group[], private readonly mode: 'rules' | 'allow-all' | 'disallow-all') {}
 
@@ -103,8 +108,12 @@ export class RobotsRules {
         if (!current || value === '') continue;
         const pattern = normalize(value);
         current.rules.push({ allow: key === 'allow', pattern, regex: compile(pattern) });
+      } else if (key === 'crawl-delay') {
+        // Applies to the current group; like sitemap and unknown keys it doesn't end a run of user-agent lines
+        const sec = Number(value);
+        if (current && Number.isFinite(sec) && sec >= 0) current.crawlDelay = Math.min(sec, MAX_CRAWL_DELAY_SEC);
       } else {
-        // sitemap, crawl-delay and unknown keys don't end a run of user-agent lines
+        // sitemap and unknown keys don't end a run of user-agent lines
       }
     }
     return new RobotsRules(groups, 'rules');
@@ -117,6 +126,15 @@ export class RobotsRules {
     const named = this.groups.filter(g => g.agents.includes(token));
     const chosen = named.length ? named : this.groups.filter(g => g.agents.includes('*'));
     return chosen.flatMap(g => g.rules);
+  }
+
+  // Crawl-delay (seconds) that applies to an agent, if any
+  public crawlDelay(agent: string = DEFAULT_ROBOTS_AGENT): number | undefined {
+    const token = agent.toLowerCase();
+    const named = this.groups.filter(g => g.agents.includes(token));
+    const chosen = named.length ? named : this.groups.filter(g => g.agents.includes('*'));
+    const delays = chosen.map(g => g.crawlDelay).filter((d): d is number => d !== undefined);
+    return delays.length ? Math.max(...delays) : undefined;
   }
 
   public isAllowed(url: string, agent: string = DEFAULT_ROBOTS_AGENT): boolean {
@@ -157,6 +175,8 @@ export class RobotsStore {
   private readonly cache = new Map<string, { rules: RobotsRules; fetchedAt: number }>();
   private readonly inflight = new Map<string, Promise<RobotsRules>>();
   public fetchCount = 0;
+  // Earliest time (ms) the next request to each origin may start, for Crawl-delay
+  private readonly nextSlot = new Map<string, number>();
 
   constructor(private readonly options: RobotsStoreOptions = {}) {
     this.agent = options.agent || DEFAULT_ROBOTS_AGENT;
@@ -194,9 +214,30 @@ export class RobotsStore {
     return rules.isAllowed(url, this.agent);
   }
 
-  // Throws RobotsBlockedError when the URL is disallowed for this agent.
+  // Crawl-delay of the URL's origin from the cached robots.txt (undefined if none or not loaded yet)
+  public crawlDelaySec(url: string): number | undefined {
+    const robotsUrl = RobotsStore.robotsUrlFor(url);
+    if (!robotsUrl) return undefined;
+    return this.cache.get(robotsUrl)?.rules.crawlDelay(this.agent);
+  }
+
+  // Waits until the origin's Crawl-delay has passed since the previous request, then reserves the slot
+  public async waitTurn(url: string): Promise<void> {
+    const delay = this.crawlDelaySec(url);
+    if (!delay) return;
+    const origin = new URL(url).origin;
+    const now = Date.now();
+    const start = Math.max(now, this.nextSlot.get(origin) ?? 0);
+    this.nextSlot.set(origin, start + delay * 1000);
+    if (start > now) await new Promise((r) => setTimeout(r, start - now));
+  }
+
+  // Throws RobotsBlockedError when the URL is disallowed for this agent; honours Crawl-delay otherwise.
   public async check(url: string): Promise<void> {
-    if (await this.isAllowed(url)) return;
+    if (await this.isAllowed(url)) {
+      await this.waitTurn(url);
+      return;
+    }
     const robotsUrl = RobotsStore.robotsUrlFor(url)!;
     if (this.options.onBlocked) this.options.onBlocked(url, robotsUrl);
     else process.stderr.write(`[Memora] blocked by robots.txt: ${url}\n`);

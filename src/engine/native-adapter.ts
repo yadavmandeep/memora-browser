@@ -22,8 +22,8 @@ export class NativeEngineAdapter {
     this.page = this.browser.newPage();
   }
 
-  public async goto(url: string, timeoutMs: number = 20000): Promise<{ status: number; url: string }> {
-    const res = await this.page.goto(url, timeoutMs);
+  public async goto(url: string, timeoutMs?: number): Promise<{ status: number; url: string }> {
+    const res = await this.page.goto(url, timeoutMs === undefined ? {} : timeoutMs);
     const snap = this.page.getSemanticSnapshot();
     this.actionSelectorMap.clear();
     for (const act of snap.actions) {
@@ -82,6 +82,19 @@ export class NativeEngineAdapter {
     };
   }
 
+  // Tag, type attribute and form membership of an action target (firewall: is this click a form submit?)
+  public async describeTarget(target: string): Promise<{ tag: string; type: string | null; inForm: boolean } | null> {
+    let el;
+    try {
+      const mapped = target.startsWith('@') ? this.actionSelectorMap.get(target) : undefined;
+      el = mapped ? this.page.querySelector(mapped) : target.startsWith('@') ? null : this.page.resolveElement(target);
+    } catch {
+      return null;
+    }
+    if (!el) return null;
+    return { tag: el.tagName.toLowerCase(), type: el.getAttribute('type'), inForm: !!this.page.formOwner(el) };
+  }
+
   public async inspect(): Promise<SemanticPageSnapshot> {
     return this.getSemanticSnapshot();
   }
@@ -118,18 +131,17 @@ export class NativeEngineAdapter {
   public async cookies(action: string, name?: string, value?: string): Promise<string> {
     switch (action) {
       case 'list': {
-        const dump = this.page.fetcher.dumpCookies();
+        // Cookies the current site receives
+        const dump = this.page.fetcher.dumpCookies(/^https?:/.test(this.page.url) ? this.page.url : undefined);
         return JSON.stringify(dump, null, 2);
       }
       case 'set': {
         if (!name || value === undefined) throw new Error('Cookie name and value required');
-        const dump = this.page.fetcher.dumpCookies();
-        dump[name] = value;
-        this.page.fetcher.restoreCookies(dump);
-        return `Cookie "${name}" set`;
+        this.page.fetcher.setCookie(name, value, /^https?:/.test(this.page.url) ? this.page.url : undefined);
+        return `Cookie "${name}" set for ${/^https?:/.test(this.page.url) ? new URL(this.page.url).host : 'every site'}`;
       }
       case 'clear': {
-        this.page.fetcher.restoreCookies({});
+        this.page.fetcher.clearCookies();
         return 'All cookies cleared';
       }
       default:
@@ -156,13 +168,32 @@ export class NativeEngineAdapter {
     return this.page.content();
   }
 
-  public async evaluate(code: string): Promise<any> {
-    const res = this.page.evaluate(code);
-    return res && res.success !== undefined ? (res.success ? res.result : { error: res.error }) : res;
+  // Runs code in the page; awaits a returned promise (10 s) and returns a plain, JSON-safe value.
+  // Thrown errors and rejections propagate as errors.
+  public async evaluate(code: string, promiseTimeoutMs: number = 10000): Promise<any> {
+    let value = this.page.sandbox.evaluateRaw(code, 5000);
+    if (value !== null && (typeof value === 'object' || typeof value === 'function') && typeof value.then === 'function') {
+      let timer: NodeJS.Timeout | undefined;
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Timed out waiting for the promise')), promiseTimeoutMs);
+      });
+      try {
+        value = await Promise.race([Promise.resolve(value), timeout]);
+      } catch (err: any) {
+        throw err instanceof Error ? err : new Error(err?.message || String(err));
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    return toPlainValue(value);
   }
 
   public async getStructuredData(): Promise<StructuredPageData> {
     return this.page.getStructuredData();
+  }
+
+  public async extractSchema(schema?: any): Promise<any> {
+    return this.page.extractSchema(schema);
   }
 
   public async fork(): Promise<string> {
@@ -200,6 +231,45 @@ export class NativeEngineAdapter {
   public async close(): Promise<void> {
     this.page.close();
     this.browser.close();
+  }
+}
+
+// Page value -> JSON-safe value: undefined -> "undefined", functions and DOM nodes -> short strings
+function toPlainValue(val: any, depth = 0, seen: WeakSet<object> = new WeakSet()): any {
+  if (val === undefined) return depth === 0 ? 'undefined' : null;
+  if (val === null) return null;
+  const t = typeof val;
+  if (t === 'string' || t === 'boolean') return val;
+  if (t === 'number') return Number.isFinite(val) ? val : String(val);
+  if (t === 'bigint') return `${val}n`;
+  if (t === 'symbol') return val.toString();
+  if (t === 'function') return `[Function${val.name ? ` ${val.name}` : ''}]`;
+  if (typeof val.nodeType === 'number' && typeof val.nodeName === 'string') {
+    if (val.nodeType === 1) {
+      const id = val.getAttribute?.('id');
+      return `<${String(val.tagName).toLowerCase()}${id ? `#${id}` : ''}>`;
+    }
+    return `[${val.nodeName}]`;
+  }
+  if (seen.has(val)) return '[Circular]';
+  if (depth >= 8) return '[Object]';
+  seen.add(val);
+  try {
+    if (Array.isArray(val)) return val.slice(0, 1000).map(v => toPlainValue(v, depth + 1, seen));
+    if (val instanceof Error || (typeof val.message === 'string' && typeof val.stack === 'string')) return `${val.name || 'Error'}: ${val.message}`;
+    if (typeof val.toJSON === 'function') {
+      try { return toPlainValue(val.toJSON(), depth + 1, seen); } catch { /* fall through */ }
+    }
+    const out: Record<string, any> = {};
+    for (const key of Object.keys(val).slice(0, 1000)) {
+      let v: any;
+      try { v = val[key]; } catch { continue; }
+      if (v === undefined) continue;
+      out[key] = toPlainValue(v, depth + 1, seen);
+    }
+    return out;
+  } finally {
+    seen.delete(val);
   }
 }
 

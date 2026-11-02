@@ -7,8 +7,13 @@ import { RemoteObjectRegistry, exceptionDetails } from './remote-objects.js';
 import { RobotsBlockedError } from '../network/robots.js';
 import { ChallengeCooldownError } from '../challenge/cooldown.js';
 import { ChallengeDetectedError } from '../challenge/errors.js';
+import { FirewallBlockedError } from '../firewall/errors.js';
+import { resolveSessionPath } from '../network/server-guard.js';
+import type { InterceptDecision, InterceptedRequest } from '../network/fetcher.js';
 import { VIEWPORT, installSandboxCompat, isElementRendered, layoutFor, quadFor } from './dom-compat.js';
 import { dispatchKeyEvent, dispatchMouseEvent, insertText } from './input.js';
+import { ORBIS_VERSION } from '../version.js';
+import type { StoredCookie } from '../network/cookie-jar.js';
 
 type Emit = (event: CDPEvent) => void;
 
@@ -31,9 +36,57 @@ interface PageState {
   worldNames: Set<string>;
   initScripts: Map<string, { source: string; worldName?: string }>;
   browserContextId: string;
+  // Fetch interception: loader id Page.navigate is about to use, and the navigation request already
+  // announced by the interceptor (its Network.requestWillBeSent must not be sent twice)
+  plannedLoaderId?: string;
+  announcedNavId?: string;
+  paused?: Map<string, (d: InterceptDecision) => void>;
 }
 
 const DEFAULT_CONTEXT = 'default';
+
+// Jar cookie -> CDP Network.Cookie
+function toCdpCookie(c: StoredCookie) {
+  return {
+    name: c.name,
+    value: c.value,
+    domain: c.hostOnly ? c.domain : '.' + c.domain,
+    path: c.path,
+    expires: c.expires === undefined ? -1 : c.expires / 1000,
+    size: c.name.length + c.value.length,
+    httpOnly: c.httpOnly,
+    secure: c.secure,
+    session: c.expires === undefined,
+    sameSite: 'Lax',
+    priority: 'Medium',
+    sameParty: false,
+    sourceScheme: c.secure ? 'Secure' : 'NonSecure',
+    sourcePort: c.secure ? 443 : 80,
+  };
+}
+
+// CDP CookieParam -> jar cookie. `url` gives a host-only cookie; `domain` with a leading '.' covers subdomains.
+function fromCdpCookie(p: any, fallbackUrl?: string): StoredCookie {
+  let domain = '';
+  let hostOnly = true;
+  let path = p.path;
+  let secure = p.secure;
+  const url = p.url || (!p.domain ? fallbackUrl : undefined);
+  if (p.domain) {
+    domain = String(p.domain);
+    hostOnly = !domain.startsWith('.');
+  } else if (url) {
+    try {
+      const u = new URL(url);
+      domain = u.hostname.replace(/^\[|\]$/g, '');
+      if (path === undefined) path = '/';
+      if (secure === undefined) secure = u.protocol === 'https:';
+    } catch { /* invalid url: unscoped */ }
+  }
+  if (!p.name) throw new Error('Cookie name is required');
+  const exp = typeof p.expires === 'number' && p.expires > 0 ? p.expires * 1000 : undefined;
+  return { name: String(p.name), value: String(p.value ?? ''), domain, hostOnly, path: path || '/', secure: !!secure, httpOnly: !!p.httpOnly, expires: exp };
+}
 const MAIN_WORLD = '';
 
 function newLoaderId(): string {
@@ -66,6 +119,21 @@ function netErrorText(err: any): string {
   if (/Invalid URL|ERR_INVALID_URL/i.test(msg)) return 'net::ERR_INVALID_URL';
   if (/abort/i.test(msg)) return 'net::ERR_ABORTED';
   return 'net::ERR_FAILED';
+}
+
+// State of one CDP client connection (one WebSocket)
+export interface CDPConnection {
+  // Pages this client created (Target.createTarget): Browser.close closes these, not other clients' pages
+  ownedPages: Set<string>;
+  // Extra sessions handed out by Target.attachToTarget / attachToBrowserTarget: sessionId -> page id or BROWSER_SESSION
+  sessions: Map<string, string>;
+  // Run when the connection closes (console subscriptions, ...)
+  cleanups: Array<() => void>;
+  consoleSubscribed: Set<string>;
+}
+export const BROWSER_SESSION = '__browser__';
+export function newConnection(): CDPConnection {
+  return { ownedPages: new Set(), sessions: new Map(), cleanups: [], consoleSubscribed: new Set() };
 }
 
 export class CDPDispatcher {
@@ -190,8 +258,10 @@ export class CDPDispatcher {
 
     const now = Date.now() / 1000;
     const isNetwork = /^https?:/.test(page.url);
+    const announced = state.announcedNavId === loaderId;
+    state.announcedNavId = undefined;
     if (isNetwork) {
-      emit({
+      if (!announced) emit({
         method: 'Network.requestWillBeSent',
         params: {
           requestId: loaderId, loaderId, documentURL: page.url, frameId: page.id, type: 'Document',
@@ -234,7 +304,7 @@ export class CDPDispatcher {
       if (page.sandbox !== before) {
         emit({ method: 'Page.frameRequestedNavigation', params: { frameId: page.id, reason: 'scriptInitiated', url: page.url, disposition: 'currentTab' } });
         emit({ method: 'Page.frameStartedLoading', params: { frameId: page.id } });
-        this.commitDocument(page, emit, newLoaderId());
+        this.commitDocument(page, emit, this.stateFor(page).announcedNavId ?? newLoaderId());
       }
     }
   }
@@ -252,8 +322,9 @@ export class CDPDispatcher {
   }
 
   private async navigate(page: MemoraPage, url: string, emit: Emit): Promise<Record<string, any>> {
-    this.stateFor(page);
+    const navState = this.stateFor(page);
     const loaderId = newLoaderId();
+    navState.plannedLoaderId = loaderId;
     emit({ method: 'Page.frameStartedLoading', params: { frameId: page.id } });
     try {
       if (url === 'about:blank') {
@@ -268,6 +339,10 @@ export class CDPDispatcher {
       }
       if (e instanceof ChallengeDetectedError) {
         return { frameId: page.id, loaderId, errorText: 'net::ERR_BLOCKED_BY_RESPONSE' };
+      }
+      if (e instanceof FirewallBlockedError) {
+        // What Chrome reports for URLs refused by enterprise policy (URLBlocklist)
+        return { frameId: page.id, loaderId, errorText: 'net::ERR_BLOCKED_BY_ADMINISTRATOR' };
       }
       return { frameId: page.id, loaderId, errorText: netErrorText(e) };
     }
@@ -320,13 +395,14 @@ export class CDPDispatcher {
   public async dispatch(
     req: CDPRequest,
     targetPage: MemoraPage,
-    emitEvent: Emit
+    emitEvent: Emit,
+    conn: CDPConnection = newConnection()
   ): Promise<CDPResponse> {
     const { id, method, params = {}, sessionId } = req;
     const [domain, action] = method.split('.');
 
     try {
-      const result = await this.handleDomainCall(domain, action, params, targetPage, emitEvent, sessionId);
+      const result = await this.handleDomainCall(domain, action, params, targetPage, emitEvent, sessionId, conn);
       return { id, result, sessionId };
     } catch (err: any) {
       return {
@@ -346,7 +422,8 @@ export class CDPDispatcher {
     params: any,
     page: MemoraPage,
     emitEvent: Emit,
-    sessionId?: string
+    sessionId?: string,
+    conn: CDPConnection = newConnection()
   ): Promise<Record<string, any>> {
     switch (domain) {
       // 1. Target Domain
@@ -357,6 +434,7 @@ export class CDPDispatcher {
         if (action === 'createTarget') {
           const contextId = params.browserContextId || DEFAULT_CONTEXT;
           const newP = this.browser.newPage({ context: contextId });
+          conn.ownedPages.add(newP.id);
           this.pageContexts.set(newP.id, contextId);
           this.stateFor(newP);
           if (params.url && params.url !== 'about:blank') {
@@ -381,18 +459,31 @@ export class CDPDispatcher {
           }
           return { success: closed };
         }
+        if (action === 'attachToBrowserTarget') {
+          // A second browser-level session (Playwright opens one for newCDPSession)
+          const sid = crypto.randomBytes(16).toString('hex').toUpperCase();
+          conn.sessions.set(sid, BROWSER_SESSION);
+          return { sessionId: sid };
+        }
         if (action === 'attachToTarget') {
           const target = this.browser.getPage(params.targetId);
           if (!target) throw new Error(`No target with given id found`);
+          // Every attach gets its own session, as in Chrome; the event goes to the session that asked
+          const sid = crypto.randomBytes(16).toString('hex').toUpperCase();
+          conn.sessions.set(sid, target.id);
           emitEvent({
             method: 'Target.attachedToTarget',
-            params: { sessionId: target.id, targetInfo: this.targetInfo(target), waitingForDebugger: false }
+            params: { sessionId: sid, targetInfo: this.targetInfo(target), waitingForDebugger: false }
           });
-          return { sessionId: target.id };
+          return { sessionId: sid };
         }
         if (action === 'detachFromTarget') {
           const sid = params.sessionId || params.targetId;
-          if (sid) emitEvent({ method: 'Target.detachedFromTarget', params: { sessionId: sid, targetId: sid } });
+          if (sid) {
+            const targetId = conn.sessions.get(sid) || sid;
+            conn.sessions.delete(sid);
+            emitEvent({ method: 'Target.detachedFromTarget', params: { sessionId: sid, targetId } });
+          }
           return {};
         }
         if (action === 'setAutoAttach') {
@@ -539,6 +630,33 @@ export class CDPDispatcher {
       case 'Runtime': {
         const state = this.stateFor(page);
         if (action === 'enable') {
+          const subKey = `${page.id}|${sessionId || ''}`;
+          if (!conn.consoleSubscribed.has(subKey)) {
+            conn.consoleSubscribed.add(subKey);
+            const typeMap: Record<string, string> = { log: 'log', info: 'info', warn: 'warning', error: 'error', debug: 'debug' };
+            const toRemote = (v: any) => {
+              if (v === null) return { type: 'object', subtype: 'null', value: null };
+              const t = typeof v;
+              if (t === 'string' || t === 'number' || t === 'boolean') return { type: t, value: v, description: String(v) };
+              if (t === 'undefined') return { type: 'undefined' };
+              let d = '';
+              try { d = JSON.stringify(v); } catch { d = String(v); }
+              return { type: t === 'function' ? 'function' : 'object', description: d ?? String(v) };
+            };
+            const off = page.onConsole((type, args) => {
+              emitEvent({
+                method: 'Runtime.consoleAPICalled',
+                params: {
+                  type: typeMap[type] || 'log',
+                  args: args.map(toRemote),
+                  executionContextId: state.doc.mainContextId,
+                  timestamp: Date.now(),
+                  stackTrace: { callFrames: [] },
+                },
+              });
+            });
+            conn.cleanups.push(off);
+          }
           // Emit after the response is flushed: Playwright sends its init commands in parallel and
           // only attaches context listeners once Page.getFrameTree resolves, so an event sent
           // inline can arrive before anyone listens and the main world is never registered.
@@ -702,6 +820,94 @@ export class CDPDispatcher {
         return {};
       }
 
+      // Fetch Domain: request interception (Playwright route())
+      case 'Fetch': {
+        const state = this.stateFor(page);
+        if (action === 'enable') {
+          const paused = (state.paused ??= new Map());
+          let seq = 0;
+          page.fetcher.interceptor = {
+            intercept: (req: InterceptedRequest) => new Promise<InterceptDecision>((resolve) => {
+              const now = Date.now() / 1000;
+              const isNav = req.resourceType === 'Document';
+              const networkId = isNav ? (state.plannedLoaderId ?? newLoaderId()) : `${page.id}.${++seq}`;
+              if (isNav) {
+                state.plannedLoaderId = undefined;
+                state.announcedNavId = networkId;
+              }
+              req.networkId = networkId;
+              const request = { url: req.url, method: req.method, headers: req.headers, initialPriority: 'High', referrerPolicy: 'strict-origin-when-cross-origin', ...(req.body !== undefined ? { postData: req.body, hasPostData: true } : {}) };
+              emitEvent({
+                method: 'Network.requestWillBeSent',
+                params: {
+                  requestId: networkId, loaderId: isNav ? networkId : state.doc.loaderId, documentURL: isNav ? req.url : page.url,
+                  frameId: page.id, type: req.resourceType, timestamp: now, wallTime: Date.now() / 1000,
+                  initiator: { type: 'other' }, redirectHasExtraInfo: false, hasUserGesture: false, request,
+                },
+              });
+              const interceptionId = `interception-${networkId}`;
+              paused.set(interceptionId, resolve);
+              emitEvent({ method: 'Fetch.requestPaused', params: { requestId: interceptionId, networkId, request, frameId: page.id, resourceType: req.resourceType } });
+            }),
+            responded: (req, res) => {
+              if (req.resourceType === 'Document' || !req.networkId) return; // commitDocument reports navigations
+              const now = Date.now() / 1000;
+              emitEvent({
+                method: 'Network.responseReceived',
+                params: {
+                  requestId: req.networkId, loaderId: state.doc.loaderId, frameId: page.id, type: req.resourceType, timestamp: now, hasExtraInfo: false,
+                  response: { url: res.url, status: res.status, statusText: '', headers: res.headers, mimeType: res.headers['content-type'] || '', connectionReused: false, connectionId: 0, encodedDataLength: 0, securityState: 'neutral', protocol: 'http/1.1' },
+                },
+              });
+              emitEvent({ method: 'Network.loadingFinished', params: { requestId: req.networkId, timestamp: now, encodedDataLength: 0 } });
+            },
+            failed: (req, error) => {
+              if (!req.networkId) return;
+              emitEvent({ method: 'Network.loadingFailed', params: { requestId: req.networkId, timestamp: Date.now() / 1000, type: req.resourceType, errorText: error, canceled: false } });
+            },
+          };
+          return {};
+        }
+        if (action === 'disable') {
+          page.fetcher.interceptor = undefined;
+          for (const resolve of state.paused?.values() ?? []) resolve({ action: 'continue' });
+          state.paused?.clear();
+          return {};
+        }
+        const resolve = state.paused?.get(String(params.requestId));
+        if (!resolve) {
+          if (['continueRequest', 'fulfillRequest', 'failRequest', 'continueWithAuth'].includes(action)) throw new Error('Invalid InterceptionId.');
+          return {};
+        }
+        state.paused!.delete(String(params.requestId));
+        const headerObj = (list?: Array<{ name: string; value: string }>) =>
+          list ? Object.fromEntries(list.map((h) => [h.name, h.value])) : undefined;
+        if (action === 'continueRequest' || action === 'continueWithAuth') {
+          resolve({
+            action: 'continue',
+            url: params.url,
+            method: params.method,
+            headers: headerObj(params.headers),
+            body: params.postData !== undefined ? Buffer.from(params.postData, 'base64').toString('utf8') : undefined,
+          });
+          return {};
+        }
+        if (action === 'fulfillRequest') {
+          resolve({
+            action: 'fulfill',
+            status: Number(params.responseCode) || 200,
+            headers: headerObj(params.responseHeaders) || {},
+            body: params.body !== undefined ? Buffer.from(params.body, 'base64').toString('utf8') : '',
+          });
+          return {};
+        }
+        if (action === 'failRequest') {
+          resolve({ action: 'fail', reason: String(params.errorReason || 'Failed') });
+          return {};
+        }
+        return {};
+      }
+
       // 5. Network Domain
       case 'Network': {
         if (action === 'enable') return {};
@@ -709,8 +915,44 @@ export class CDPDispatcher {
           page.fetcher.setExtraHeaders(params.headers || {});
           return {};
         }
-        if (action === 'getCookies' || action === 'getAllCookies') {
-          return { cookies: [] };
+        if (action === 'getCookies') {
+          const jar = page.fetcher.cookieJar;
+          const urls: string[] = Array.isArray(params.urls) && params.urls.length ? params.urls : [page.url];
+          const seen = new Set<StoredCookie>();
+          const out: StoredCookie[] = [];
+          const all = jar.list();
+          for (const u of urls) {
+            for (const c of jar.forUrl(u)) {
+              const match = all.find((x) => x.name === c.name && x.domain === c.domain && x.path === c.path);
+              if (match && !seen.has(match)) { seen.add(match); out.push(match); }
+            }
+          }
+          return { cookies: out.map(toCdpCookie) };
+        }
+        if (action === 'getAllCookies') return { cookies: page.fetcher.cookieJar.list().map(toCdpCookie) };
+        if (action === 'setCookie') {
+          page.fetcher.cookieJar.add(fromCdpCookie(params, page.url));
+          return { success: true };
+        }
+        if (action === 'setCookies') {
+          for (const c of params.cookies || []) page.fetcher.cookieJar.add(fromCdpCookie(c, page.url));
+          return {};
+        }
+        if (action === 'deleteCookies') {
+          const jar = page.fetcher.cookieJar;
+          if (params.url && !params.domain) {
+            const host = new URL(params.url).hostname;
+            for (const c of jar.list()) {
+              if (c.name === params.name && (c.domain === host || host.endsWith('.' + c.domain)) && (!params.path || c.path === params.path)) jar.remove(c.name, c.domain, c.path);
+            }
+          } else {
+            jar.remove(params.name, params.domain || undefined, params.path || undefined);
+          }
+          return {};
+        }
+        if (action === 'clearBrowserCookies') {
+          page.fetcher.cookieJar.clear();
+          return {};
         }
         if (action === 'getResponseBody') {
           const state = this.stateFor(page);
@@ -721,7 +963,17 @@ export class CDPDispatcher {
       }
 
       case 'Storage': {
-        if (action === 'getCookies') return { cookies: [] };
+        const ctxId = params.browserContextId || this.pageContexts.get(page.id) || DEFAULT_CONTEXT;
+        const jar = this.browser.getContext(ctxId)?.cookieJar || page.fetcher.cookieJar;
+        if (action === 'getCookies') return { cookies: jar.list().map(toCdpCookie) };
+        if (action === 'setCookies') {
+          for (const c of params.cookies || []) jar.add(fromCdpCookie(c));
+          return {};
+        }
+        if (action === 'clearCookies') {
+          jar.clear();
+          return {};
+        }
         return {};
       }
 
@@ -748,14 +1000,22 @@ export class CDPDispatcher {
         if (action === 'getVersion') {
           return {
             protocolVersion: '1.3',
-            product: 'MemoraEngine/0.1.2',
-            revision: '0.1.2',
+            product: `MemoraEngine/${ORBIS_VERSION}`,
+            revision: ORBIS_VERSION,
             userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36',
             jsVersion: 'V8-12.x'
           };
         }
         if (action === 'close') {
-          this.browser.close();
+          // Only this client's own pages: other clients of the same daemon keep theirs
+          for (const pid of conn.ownedPages) {
+            if (this.browser.getPage(pid)) {
+              this.browser.closePage(pid);
+              emitEvent({ method: 'Target.detachedFromTarget', params: { sessionId: pid, targetId: pid } });
+              emitEvent({ method: 'Target.targetDestroyed', params: { targetId: pid } });
+            }
+          }
+          conn.ownedPages.clear();
           return {};
         }
         return {};
@@ -797,21 +1057,21 @@ export class CDPDispatcher {
         if (action === 'fillForm') {
           const res = await page.fillForm({
             fields: params.fields,
-            submit: params.submit ?? params.submitActionId ?? true,
+            submit: params.submit ?? params.submitActionId ?? false,
             steps: params.steps
           });
           return { ...res, snapshot: page.getSemanticSnapshot() };
         }
         if (action === 'saveSession') {
           if (params.filePath) {
-            page.saveSession(params.filePath);
+            page.saveSession(resolveSessionPath(params.filePath));
             return { success: true, filePath: params.filePath };
           }
           return { success: true, session: page.dumpSession() };
         }
         if (action === 'loadSession') {
           if (params.filePath) {
-            page.loadSession(params.filePath);
+            page.loadSession(resolveSessionPath(params.filePath));
             return { success: true, url: page.url };
           }
           if (params.session) {
@@ -826,7 +1086,7 @@ export class CDPDispatcher {
             const ok = page.type(actionId, text);
             return { success: ok };
           }
-          const ok = page.click(actionId);
+          const ok = await page.click(actionId);
           return { success: ok };
         }
         return {};

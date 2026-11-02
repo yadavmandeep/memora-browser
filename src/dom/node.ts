@@ -6,6 +6,8 @@ let fragmentParser: ((html: string, container: MemoraElement) => void) | null = 
 let selectorEngine: {
   selectOne: (selector: string, root: MemoraNode) => MemoraElement | null;
   selectAll: (selector: string, root: MemoraNode) => MemoraElement[];
+  // Tests one element without scanning the document
+  matches?: (elem: MemoraElement, selector: string) => boolean;
 } | null = null;
 
 export function setFragmentParser(fn: (html: string, container: MemoraElement) => void): void {
@@ -15,6 +17,8 @@ export function setFragmentParser(fn: (html: string, container: MemoraElement) =
 export function setSelectorEngine(engine: {
   selectOne: (selector: string, root: MemoraNode) => MemoraElement | null;
   selectAll: (selector: string, root: MemoraNode) => MemoraElement[];
+  // Tests one element without scanning the document
+  matches?: (elem: MemoraElement, selector: string) => boolean;
 }): void {
   selectorEngine = engine;
 }
@@ -264,6 +268,7 @@ export class MemoraElement extends MemoraNode {
   }
 
   public matches(selector: string): boolean {
+    if (selectorEngine?.matches) return selectorEngine.matches(this, selector);
     const root = this.getRootNode();
     return root instanceof MemoraElement && root.querySelectorAll(selector).includes(this);
   }
@@ -391,11 +396,71 @@ export class MemoraElement extends MemoraNode {
   }
 
   public get value(): string {
+    if (this.tagName === 'select') {
+      const opt = this.selectedOption();
+      return opt ? opt.value : '';
+    }
+    if (this.tagName === 'option') {
+      const v = this.getAttribute('value');
+      return v !== null ? v : this.textContent.replace(/\s+/g, ' ').trim();
+    }
     return this.getAttribute('value') || '';
   }
 
   public set value(val: string) {
+    if (this.tagName === 'select') {
+      const target = String(val);
+      for (const o of this.querySelectorAll('option')) {
+        if (o.value === target) o.setAttribute('selected', '');
+        else o.removeAttribute('selected');
+      }
+      return;
+    }
     this.setAttribute('value', val);
+  }
+
+  // <select>: the selected <option> (the first one when none is marked, as browsers do for single selects)
+  private selectedOption(): MemoraElement | null {
+    const opts = this.querySelectorAll('option');
+    return opts.find((o) => o.hasAttribute('selected')) ?? (this.hasAttribute('multiple') ? null : opts[0] ?? null);
+  }
+
+  // HTMLOptionElement.text (whitespace collapsed) / HTMLAnchorElement.text etc. (textContent)
+  public get text(): string {
+    return this.tagName === 'option' ? this.textContent.replace(/\s+/g, ' ').trim() : this.textContent;
+  }
+
+  public set text(val: string) {
+    this.textContent = String(val);
+  }
+
+  // HTMLOptionElement.label: the label attribute, else the option's text
+  public get label(): string {
+    const l = this.getAttribute('label');
+    return l !== null ? l : this.tagName === 'option' ? this.text : '';
+  }
+
+  // HTMLOptionElement.index: position among its <select>'s options
+  public get index(): number {
+    if (this.tagName !== 'option') return -1;
+    let sel: MemoraNode | null = this.parentNode;
+    while (sel && !(sel instanceof MemoraElement && sel.tagName === 'select')) sel = sel.parentNode;
+    return sel instanceof MemoraElement ? sel.querySelectorAll('option').indexOf(this) : 0;
+  }
+
+  public get options(): MemoraElement[] {
+    return this.tagName === 'select' ? this.querySelectorAll('option') : [];
+  }
+
+  public get selectedIndex(): number {
+    if (this.tagName !== 'select') return -1;
+    const opt = this.selectedOption();
+    return opt ? this.querySelectorAll('option').indexOf(opt) : -1;
+  }
+
+  public set selectedIndex(i: number) {
+    if (this.tagName !== 'select') return;
+    this.querySelectorAll('option').forEach((o, idx) => (idx === i ? o.setAttribute('selected', '') : o.removeAttribute('selected')));
   }
 
   public getBoundingClientRect(): BoundingRect {

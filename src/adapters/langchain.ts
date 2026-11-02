@@ -1,5 +1,11 @@
 import { MemoraAgent } from './agent.js';
 
+// With the agent's firewall on, page-derived tool output is sanitised and fenced as untrusted data
+function guardOutput(agent: MemoraAgent, tool: string, text: string): string {
+  if (!agent.firewall.enabled) return text;
+  return agent.firewall.processContent(text, { source: agent.page.url, tool }).text;
+}
+
 export interface LangChainToolLike {
   name: string;
   description: string;
@@ -20,7 +26,7 @@ export function createMemoraLangChainTools(agent: MemoraAgent): LangChainToolLik
       invoke: async (input: any) => {
         const url = typeof input === 'string' ? input : input.url;
         const snap = await agent.goto(url);
-        return `Successfully navigated to: ${snap.title} (${snap.url})\n\n${snap.actionMapText}\n\n=== PAGE CONTENT ===\n${snap.markdown.slice(0, 4000)}`;
+        return guardOutput(agent, 'langchain', `Successfully navigated to: ${snap.title} (${snap.url})\n\n${snap.actionMapText}\n\n=== PAGE CONTENT ===\n${snap.markdown.slice(0, 4000)}`);
       }
     },
     {
@@ -31,7 +37,7 @@ export function createMemoraLangChainTools(agent: MemoraAgent): LangChainToolLik
           focusSelector: input?.focusSelector,
           excludeSelectors: input?.excludeSelectors
         });
-        return `${snap.actionMapText}\n\n=== PAGE CONTENT ===\n${snap.markdown.slice(0, 4000)}`;
+        return guardOutput(agent, 'langchain', `${snap.actionMapText}\n\n=== PAGE CONTENT ===\n${snap.markdown.slice(0, 4000)}`);
       }
     },
     {
@@ -40,9 +46,9 @@ export function createMemoraLangChainTools(agent: MemoraAgent): LangChainToolLik
       invoke: async (input: any) => {
         const actionId = typeof input === 'string' ? input : input.actionId;
         const text = typeof input === 'object' ? input.text : undefined;
-        const success = agent.act(actionId, text);
+        const success = await agent.actAsync(actionId, text);
         const diff = agent.diff();
-        return `Action ${actionId} ${success ? 'succeeded' : 'failed'}.\n\nPage changes:\n${diff.summary}`;
+        return guardOutput(agent, 'langchain', `Action ${actionId} ${success ? 'succeeded' : 'failed'}.\n\nPage changes:\n${diff.summary}`);
       }
     },
     {
@@ -50,7 +56,7 @@ export function createMemoraLangChainTools(agent: MemoraAgent): LangChainToolLik
       description: 'Compares current page state with the previous state to see what DOM elements appeared, disappeared, or changed. Input: empty object {}.',
       invoke: async () => {
         const diff = agent.diff();
-        return `STATE DIFF:\nAdded: ${diff.addedActions.length}, Removed: ${diff.removedActions.length}, Changed: ${diff.mutatedActions.length}\n\nSummary:\n${diff.summary}`;
+        return guardOutput(agent, 'langchain', `STATE DIFF:\nAdded: ${diff.addedActions.length}, Removed: ${diff.removedActions.length}, Changed: ${diff.mutatedActions.length}\n\nSummary:\n${diff.summary}`);
       }
     },
     {
@@ -58,10 +64,10 @@ export function createMemoraLangChainTools(agent: MemoraAgent): LangChainToolLik
       description: 'Fills multiple form fields simultaneously and optionally submits the form in one atomic turn. Input: { "fields": { "@1": "user@test.com", "@2": "password" }, "submit": true }',
       invoke: async (input: any) => {
         const fields = input.fields || {};
-        const submit = input.submit ?? true;
+        const submit = input.submit ?? false;
         const res = await agent.fillForm(fields, submit);
         const snap = agent.snapshot();
-        return `Form filled: ${res.fieldsFilled} fields. Submitted: ${res.submitted}.\nCurrent URL: ${res.url}\n\n${snap.actionMapText}`;
+        return guardOutput(agent, 'langchain', `Form filled: ${res.fieldsFilled} fields. Submitted: ${res.submitted}.\nCurrent URL: ${res.url}\n\n${snap.actionMapText}`);
       }
     }
   ];
@@ -85,7 +91,7 @@ export function createOrbisLangChainTools(agent: MemoraAgent): LangChainToolLike
       invoke: async (input: any) => {
         const url = typeof input === 'string' ? input : input.url;
         const snap = await agent.goto(url);
-        return `Successfully navigated to: ${snap.title} (${snap.url})\n\n${snap.actionMapText}\n\n=== PAGE CONTENT ===\n${snap.markdown.slice(0, 4000)}`;
+        return guardOutput(agent, 'langchain', `Successfully navigated to: ${snap.title} (${snap.url})\n\n${snap.actionMapText}\n\n=== PAGE CONTENT ===\n${snap.markdown.slice(0, 4000)}`);
       }
     },
     {
@@ -96,7 +102,7 @@ export function createOrbisLangChainTools(agent: MemoraAgent): LangChainToolLike
           focusSelector: input?.focusSelector,
           excludeSelectors: input?.excludeSelectors
         });
-        return `${snap.actionMapText}\n\n=== PAGE CONTENT ===\n${snap.markdown.slice(0, 4000)}`;
+        return guardOutput(agent, 'langchain', `${snap.actionMapText}\n\n=== PAGE CONTENT ===\n${snap.markdown.slice(0, 4000)}`);
       }
     },
     {
@@ -105,9 +111,9 @@ export function createOrbisLangChainTools(agent: MemoraAgent): LangChainToolLike
       invoke: async (input: any) => {
         const actionId = typeof input === 'string' ? input : input.actionId;
         const text = typeof input === 'object' ? input.text : undefined;
-        const success = agent.act(actionId, text);
+        const success = await agent.actAsync(actionId, text);
         const diff = agent.diff();
-        return `Action ${actionId} ${success ? 'succeeded' : 'failed'}.\n\nPage changes:\n${diff.summary}`;
+        return guardOutput(agent, 'langchain', `Action ${actionId} ${success ? 'succeeded' : 'failed'}.\n\nPage changes:\n${diff.summary}`);
       }
     },
     {
@@ -115,7 +121,7 @@ export function createOrbisLangChainTools(agent: MemoraAgent): LangChainToolLike
       description: 'Compares current page state with the previous state to see what DOM elements appeared, disappeared, or changed. Input: empty object {}.',
       invoke: async () => {
         const diff = agent.diff();
-        return `STATE DIFF:\nAdded: ${diff.addedActions.length}, Removed: ${diff.removedActions.length}, Changed: ${diff.mutatedActions.length}\n\nSummary:\n${diff.summary}`;
+        return guardOutput(agent, 'langchain', `STATE DIFF:\nAdded: ${diff.addedActions.length}, Removed: ${diff.removedActions.length}, Changed: ${diff.mutatedActions.length}\n\nSummary:\n${diff.summary}`);
       }
     },
     {
@@ -123,10 +129,10 @@ export function createOrbisLangChainTools(agent: MemoraAgent): LangChainToolLike
       description: 'Fills multiple form fields simultaneously and optionally submits the form in one atomic turn. Input: { "fields": { "@1": "user@test.com", "@2": "password" }, "submit": true }',
       invoke: async (input: any) => {
         const fields = input.fields || {};
-        const submit = input.submit ?? true;
+        const submit = input.submit ?? false;
         const res = await agent.fillForm(fields, submit);
         const snap = agent.snapshot();
-        return `Form filled: ${res.fieldsFilled} fields. Submitted: ${res.submitted}.\nCurrent URL: ${res.url}\n\n${snap.actionMapText}`;
+        return guardOutput(agent, 'langchain', `Form filled: ${res.fieldsFilled} fields. Submitted: ${res.submitted}.\nCurrent URL: ${res.url}\n\n${snap.actionMapText}`);
       }
     }
   ];

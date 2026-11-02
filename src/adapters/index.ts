@@ -1,8 +1,10 @@
 export { OrbisAgent, MemoraAgent } from './agent.js';
-export type { OrbisAgentOptions, MemoraAgentOptions } from './agent.js';
+export type { OrbisAgentOptions, MemoraAgentOptions, ObserveOptions } from './agent.js';
 export { getBrowserUseConfig, getOrbisBrowserUseConfig } from './browser-use.js';
 export type { BrowserUseConfig } from './browser-use.js';
 export { getStagehandConfig, getOrbisStagehandConfig } from './stagehand.js';
 export type { StagehandConfig } from './stagehand.js';
 export { createMemoraLangChainTools, createOrbisLangChainTools } from './langchain.js';
 export type { LangChainToolLike } from './langchain.js';
+export { RemoteOrbisAgent, RemoteOrbisError } from './remote-agent.js';
+export type { RemoteAgentOptions } from './remote-agent.js';

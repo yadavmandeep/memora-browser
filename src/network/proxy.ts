@@ -3,6 +3,7 @@ import { NetworkOptions } from '../types/index.js';
 import { RobotsStore } from './robots.js';
 import { ChallengeCooldown, DEFAULT_CHALLENGE_COOLDOWN_SEC } from '../challenge/cooldown.js';
 import { getStealthHeaders } from '../stealth/fingerprint.js';
+import { DomainGuard } from '../firewall/domains.js';
 
 const SUPPORTED_PROXY_PROTOCOLS = ['http:', 'https:', 'socks5:', 'socks5h:', 'socks:'];
 
@@ -105,7 +106,10 @@ export function createProxyDispatcher(proxy: string, options: NetworkOptions): D
     token: options.proxyBearerToken ? `Bearer ${options.proxyBearerToken}` : undefined,
     requestTls: tls,
     proxyTls: tls,
-  });
+    // http:// sites are sent as plain forward-proxy requests (absolute URL), like browsers do; https:// still
+    // uses a CONNECT tunnel. Many proxies refuse CONNECT to port 80, so tunnelling everything broke them.
+    proxyTunnel: false,
+  } as any);
 }
 
 // Picks a direct or proxied dispatcher per request URL, caching one agent per proxy URL
@@ -117,9 +121,12 @@ export class DispatcherPool {
   public readonly robots?: RobotsStore;
   // Session-wide per-host pause after blocking challenges / 429s
   public readonly cooldown: ChallengeCooldown;
+  // Firewall domain rules, present when NetworkOptions.domainPolicy is set
+  public readonly domains?: DomainGuard;
 
   constructor(private options: NetworkOptions) {
     this.cooldown = new ChallengeCooldown(options.challengeCooldownSec ?? DEFAULT_CHALLENGE_COOLDOWN_SEC);
+    if (options.domainPolicy) this.domains = new DomainGuard(options.domainPolicy);
     this.direct = new Agent({ connect: options.insecureTls ? { rejectUnauthorized: false } : undefined });
     this.noProxy = resolveNoProxy(options);
     if (options.proxy) validateProxyUrl(options.proxy);

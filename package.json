@@ -1,6 +1,6 @@
 {
   "name": "@memoracompany/memora-orbis",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Orbis by Memora — The Web, Working for You. Agent-native, ultra-lightweight headless browser engine with CDP, W3C WebDriver, semantic AXTree distillation, and built-in stealth",
   "homepage": "https://orbis.memora.company",
   "icon": "orbis-logo.svg",
@@ -35,7 +35,12 @@
     "test:agents": "tsx tests/test-agent-features.ts",
     "test:challenge": "tsx tests/test-challenge.ts",
     "test:concurrency": "tsx tests/test-concurrency.ts",
-    "test:all": "npm run benchmark && npm run test:proxy && npm run test:selenium && npm run test:robots && npm run test:scripts && npm run test:agents && npm run test:challenge && npm run test:concurrency"
+    "test:firewall": "tsx tests/test-firewall.ts",
+    "test:known-issues": "tsx tests/test-known-issues.ts",
+    "test:open-issues": "tsx tests/test-open-mcp.ts && tsx tests/test-open-engine.ts && tsx tests/test-open-cdp.ts && tsx tests/test-open-webdriver.ts",
+    "version": "node scripts/sync-version.mjs && git add src/version.ts python/pyproject.toml python/memora/__init__.py python/orbis/__init__.py",
+    "check:version": "node scripts/sync-version.mjs --check",
+    "test:all": "npm run check:version && npm run benchmark && npm run test:proxy && npm run test:selenium && npm run test:robots && npm run test:scripts && npm run test:agents && npm run test:challenge && npm run test:concurrency && npm run test:firewall && npm run test:known-issues && npm run test:open-issues"
   },
   "keywords": [
     "orbis",

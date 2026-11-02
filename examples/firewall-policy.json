@@ -1,0 +1,31 @@
+{
+  "description": "Orbis prompt-injection firewall policy for a research agent that may read anywhere but only act on the company's own sites. Use with: orbis --mcp --firewall-policy examples/firewall-policy.json",
+  "preset": "standard",
+  "mode": "enforce",
+  "actions": {
+    "read": "allow",
+    "navigate": "allow",
+    "interact": "allow",
+    "submit": "confirm",
+    "storage": "deny",
+    "cookies": "deny",
+    "script": "confirm",
+    "session": "deny",
+    "download": "deny"
+  },
+  "domains": {
+    "allow": [],
+    "block": ["pastebin.com", "transfer.sh", "webhook.site", "requestbin.net", "ngrok.io", "ngrok-free.app"],
+    "blockSensitive": true,
+    "blockPrivateNetwork": false
+  },
+  "content": {
+    "isolate": true,
+    "sanitize": "redact",
+    "scanHidden": true
+  },
+  "audit": {
+    "path": "./orbis-audit.jsonl",
+    "includeArgs": "redacted"
+  }
+}

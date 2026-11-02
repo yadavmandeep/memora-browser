@@ -106,7 +106,7 @@ async function runAgentLoop() {
 
   // 5. Submit form on main page
   console.log('\n🤖 Agent Action 3: Clicking [@7] ("Sign In to Dashboard")...');
-  const clicked = page.click('@7');
+  const clicked = await page.click('@7');
   console.log(`   Click executed successfully: ${clicked}`);
 
   browser.close();

@@ -150,7 +150,7 @@ async function testLoginPage() {
   // Step 5: Submit the form
   if (submitAction) {
     console.log(`\n🚀 [Step 5]: Clicking Submit Action [${submitAction.actionId}] ("${submitAction.text}")...`);
-    const clicked = page.click(submitAction.actionId);
+    const clicked = await page.click(submitAction.actionId);
     console.log(`  ✓ Click Event Dispatched: ${clicked}`);
   }
 

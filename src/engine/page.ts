@@ -1,8 +1,9 @@
 import crypto from 'node:crypto';
 import { MemoraDocument, MemoraElement, MemoraNode } from '../dom/node.js';
 import { parseHTML } from '../dom/parser.js';
-import { V8Sandbox, PageScript, collectRunnableScripts, scriptKind } from '../runtime/v8-sandbox.js';
+import { V8Sandbox, MemoraStorage, PageScript, collectRunnableScripts, scriptKind } from '../runtime/v8-sandbox.js';
 import { bundleModuleScript, parseImportMap } from '../runtime/esm-bundler.js';
+import { installSandboxCompat } from '../cdp/dom-compat.js';
 import { NetworkFetcher } from '../network/fetcher.js';
 import { CookieJar } from '../network/cookie-jar.js';
 import type { OrbisBrowser } from './browser.js';
@@ -10,6 +11,7 @@ import type { OrbisContext } from './context.js';
 import { extractSemanticSnapshot } from '../distiller/semantic-tree.js';
 import { convertToMarkdown } from '../distiller/markdown.js';
 import { extractStructuredData, StructuredPageData } from '../distiller/structured-data.js';
+import { extractWithSchema, DynamicExtractionSchema, UniversalExtractedData } from '../distiller/schema-extractor.js';
 import {
   SemanticPageSnapshot,
   PageState,
@@ -80,8 +82,35 @@ export class MemoraPage {
   // The V8 context (node:vm context + stealth script, ~1ms and a few hundred KB each) is only
   // built when something needs JS: a page <script>, an inline on* handler, evaluate() / CDP /
   // WebDriver script calls, storage or console access. Script-less pages never pay for it.
+  // Console listeners (CDP clients); survive navigations, unlike the JS context
+  private consoleListeners = new Set<(type: string, args: any[]) => void>();
+  public onConsole(fn: (type: string, args: any[]) => void): () => void {
+    this.consoleListeners.add(fn);
+    return () => this.consoleListeners.delete(fn);
+  }
+
+  // localStorage / sessionStorage per origin, kept across navigations like a browser tab does
+  private storages = new Map<string, { local: MemoraStorage; session: MemoraStorage }>();
+
+  private storageFor(url: string): { local: MemoraStorage; session: MemoraStorage } {
+    let origin = 'null';
+    try {
+      origin = new URL(url).origin;
+    } catch {}
+    let s = this.storages.get(origin);
+    if (!s) {
+      s = { local: new MemoraStorage(), session: new MemoraStorage() };
+      this.storages.set(origin, s);
+    }
+    return s;
+  }
+
   public get sandbox(): V8Sandbox {
-    if (!this._sandbox) this._sandbox = this.createSandbox();
+    if (!this._sandbox) {
+      this._sandbox = this.createSandbox();
+      // DOM members and Web API classes page scripts expect (style, dataset, remove(), Event, Node, ...)
+      installSandboxCompat(this);
+    }
     return this._sandbox;
   }
 
@@ -173,14 +202,20 @@ export class MemoraPage {
           accept: '*/*'
         }).then(async resp => {
           if (resp.status >= 200 && resp.status < 300) {
-            return await bundleModuleScript({
-              entryCode: resp.body,
-              entryUrl: src,
-              baseUrl,
-              fetcher: this.fetcher,
-              importMap,
-              timeoutMs: Math.max(1, deadline - Date.now())
-            });
+            // A module that fails to bundle is a page error, never a crash of the host process
+            try {
+              return await bundleModuleScript({
+                entryCode: resp.body,
+                entryUrl: src,
+                baseUrl,
+                fetcher: this.fetcher,
+                importMap,
+                timeoutMs: Math.max(1, deadline - Date.now())
+              });
+            } catch (err: any) {
+              this.sandbox.log('error', [`Failed to bundle module script ${src}: ${err?.message || err}`]);
+              return null;
+            }
           }
           this.sandbox.log('error', [`Failed to load module script ${src}: HTTP ${resp.status}`]);
           return null;
@@ -297,18 +332,37 @@ export class MemoraPage {
   }
 
   private createSandbox(): V8Sandbox {
+    const storage = this.storageFor(this.url);
     return new V8Sandbox(this.document, this.url, this.stealth, {
+      localStorage: storage.local,
+      sessionStorage: storage.session,
+      userAgent: this.network.userAgent,
+      onUrlChange: (u: string) => {
+        this.url = u;
+      },
+      onConsole: (type: string, args: any[]) => {
+        for (const fn of this.consoleListeners) fn(type, args);
+      },
       // Page fetch()/XHR goes through the same proxy, cookies and headers as navigations
       fetch: (input: any, init?: any) => this.fetcher.pageFetch(input, init, this.url),
     });
   }
 
-  public async goto(url: string, timeoutOrOpts: number | NavigateOptions = 20000): Promise<{ status: number; url: string }> {
+  public async goto(url: string, timeoutOrOpts: number | NavigateOptions = {}): Promise<{ status: number; url: string }> {
     const opts: NavigateOptions = typeof timeoutOrOpts === 'number' ? { timeoutMs: timeoutOrOpts } : timeoutOrOpts;
     let target = this.url !== 'about:blank' ? new URL(url, this.url).toString() : url;
     let request = { method: opts.method, body: opts.body, headers: opts.headers };
     let historyMode = opts.history || 'push';
-    const timeoutMs = opts.timeoutMs ?? 20000;
+    // --http-timeout / network.timeoutMs applies unless the caller passes its own
+    const timeoutMs = opts.timeoutMs ?? this.network.timeoutMs ?? 20000;
+    if (/^about:blank\b/i.test(target)) {
+      this.adoptDocument(parseHTML('<html><head></head><body></body></html>'));
+      this.url = 'about:blank';
+      this.lastStatus = 200;
+      this.lastChallenge = null;
+      this.recordHistory(this.url, opts.history || 'push');
+      return { status: 200, url: this.url };
+    }
     const settleMs = opts.settleTimeoutMs ?? this.settleTimeoutMs;
 
     for (let i = 0; i <= MAX_SCRIPT_REDIRECTS; i++) {
@@ -508,7 +562,13 @@ export class MemoraPage {
 
     const method = ((submitter?.getAttribute('formmethod') || form.getAttribute('method') || 'get')).toUpperCase();
     const actionAttr = submitter?.getAttribute('formaction') || form.getAttribute('action') || this.url;
-    const action = new URL(actionAttr, this.url);
+    let action: URL;
+    try {
+      action = new URL(actionAttr, this.url);
+    } catch {
+      // e.g. a relative action on an about:blank document: browsers don't navigate either
+      return false;
+    }
 
     if (method === 'POST') {
       await this.goto(action.toString(), {
@@ -538,7 +598,9 @@ export class MemoraPage {
   }
 
   public content(): string {
-    return this.document.outerHTML;
+    // Serialize like a browser: doctype + the document's children (the <html> element),
+    // not the synthetic "#document" node itself
+    return `<!DOCTYPE html>${this.document.innerHTML}`;
   }
 
   public evaluate(script: string): any {
@@ -557,14 +619,17 @@ export class MemoraPage {
   public resolveElement(target: string): MemoraElement | null {
     return this.locatorEngine.resolve(target, {
       document: this.document,
-      getSemanticSnapshot: () => this.getSemanticSnapshot(),
+      // Resolving must not move the diff() baseline
+      getSemanticSnapshot: () => this.peekSemanticSnapshot(),
+      lastSnapshot: () => (this.lastSnapshot && this.lastSnapshot.url === this.url ? this.lastSnapshot : null),
     });
   }
 
-  public click(target: string): boolean {
+  // Clicks like a person: runs the page's handlers, then follows a link or submits a form (0.2.0: async)
+  public async click(target: string): Promise<boolean> {
     const elem = this.resolveElement(target);
     if (!elem) return false;
-    elem.click();
+    await this.activate(elem);
     return true;
   }
 
@@ -673,7 +738,7 @@ export class MemoraPage {
       return {
         tag: el.tagName,
         text: el.textContent.trim().replace(/\s+/g, ' '),
-        attributes: el.attributes
+        attributes: Object.fromEntries(el.attributes)
       };
     });
   }
@@ -682,6 +747,11 @@ export class MemoraPage {
     const snap = extractSemanticSnapshot(this.document, this.url, options);
     this.lastSnapshot = snap;
     return snap;
+  }
+
+  // Same snapshot, without moving the diff() baseline
+  public peekSemanticSnapshot(options: SnapshotOptions = {}): SemanticPageSnapshot {
+    return extractSemanticSnapshot(this.document, this.url, options);
   }
 
   public getMarkdown(options: MarkdownOptions = {}): string {
@@ -700,6 +770,7 @@ export class MemoraPage {
       const allFilled: string[] = [];
       const allSkipped: string[] = [];
       let anySubmitted = false;
+      let allSucceeded = true;
       let lastUrl = this.url;
       let lastTitle = this.title();
 
@@ -708,6 +779,7 @@ export class MemoraPage {
         allFilled.push(...stepRes.filled);
         allSkipped.push(...stepRes.skipped);
         if (stepRes.submitted) anySubmitted = true;
+        if (!stepRes.success) allSucceeded = false;
         lastUrl = stepRes.url;
         lastTitle = stepRes.title;
         // Natural micro-turn pause for DOM to settle after step interaction
@@ -715,7 +787,7 @@ export class MemoraPage {
       }
 
       return {
-        success: true,
+        success: allSucceeded,
         filled: allFilled,
         skipped: allSkipped,
         fieldsFilled: allFilled.length,
@@ -766,7 +838,8 @@ export class MemoraPage {
     // 3. Trigger submit / next action if specified
     let submitted = false;
     const submitTarget = options.submitActionId ?? options.submit;
-    if (submitTarget !== undefined && submitTarget !== false) {
+    const submitRequested = submitTarget !== undefined && submitTarget !== false;
+    if (submitRequested) {
       if (typeof submitTarget === 'string') {
         const submitElem = this.resolveElement(submitTarget);
         if (submitElem) {
@@ -790,7 +863,8 @@ export class MemoraPage {
     }
 
     return {
-      success: true,
+      // Only a full fill (no skipped fields) plus any requested submit counts as success
+      success: skipped.length === 0 && (!submitRequested || submitted),
       filled,
       skipped,
       fieldsFilled: filled.length,
@@ -805,7 +879,8 @@ export class MemoraPage {
       version: 1,
       createdAt: new Date().toISOString(),
       url: this.url,
-      cookies: this.fetcher.dumpCookies(),
+      cookies: this.fetcher.dumpCookies(this.url),
+      cookieList: this.fetcher.cookieJar.list(),
       localStorage: this._sandbox ? this._sandbox.localStorage.dump() : {},
       sessionStorage: this._sandbox ? this._sandbox.sessionStorage.dump() : {},
     };
@@ -813,7 +888,9 @@ export class MemoraPage {
 
   public restoreSession(session: SessionData): void {
     validateSessionData(session);
-    this.fetcher.restoreCookies(session.cookies);
+    // Full cookie list (0.2.0+ files) keeps each cookie's site; an old name → value map belongs to the saved URL
+    if (Array.isArray(session.cookieList)) this.fetcher.cookieJar.restore(session.cookieList);
+    else this.fetcher.restoreCookies(session.cookies, /^https?:/.test(session.url || '') ? session.url : undefined);
     this.sandbox.localStorage.restore(session.localStorage);
     this.sandbox.sessionStorage.restore(session.sessionStorage);
   }
@@ -861,8 +938,12 @@ export class MemoraPage {
       if (typeof fn === 'function') {
         result = fn();
       } else {
+        // evaluate() returns a remote-object description; its value (not the description) is the answer
         const evalRes = this.evaluate(fn);
-        result = evalRes && evalRes.success ? evalRes.result : false;
+        const r = evalRes && evalRes.success ? evalRes.result : undefined;
+        result = r && typeof r === 'object' && 'type' in r
+          ? (r.type === 'undefined' || r.type === 'null' ? false : 'value' in r ? r.value : true)
+          : r;
       }
       if (result) return true;
       await new Promise(r => setTimeout(r, interval));
@@ -880,11 +961,16 @@ export class MemoraPage {
     return extractStructuredData(this.document, this.url);
   }
 
+  public extractSchema(schema?: DynamicExtractionSchema): UniversalExtractedData {
+    return extractWithSchema(this.document, this.url, schema);
+  }
+
   public dumpState(): PageState {
     return {
       url: this.url,
       html: this.document.outerHTML,
-      cookies: this.fetcher.dumpCookies(),
+      cookies: this.fetcher.dumpCookies(this.url),
+      cookieList: this.fetcher.cookieJar.list(),
       localStorage: this._sandbox ? this._sandbox.localStorage.dump() : {},
       sessionStorage: this._sandbox ? this._sandbox.sessionStorage.dump() : {},
     };
@@ -892,7 +978,8 @@ export class MemoraPage {
 
   public restoreState(state: PageState): void {
     this.setContent(state.html, state.url);
-    this.fetcher.restoreCookies(state.cookies);
+    if (Array.isArray(state.cookieList)) this.fetcher.cookieJar.restore(state.cookieList);
+    else this.fetcher.restoreCookies(state.cookies, /^https?:/.test(state.url || '') ? state.url : undefined);
     this.sandbox.localStorage.restore(state.localStorage);
     this.sandbox.sessionStorage.restore(state.sessionStorage);
   }

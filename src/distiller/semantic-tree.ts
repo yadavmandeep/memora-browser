@@ -100,47 +100,99 @@ function getSiblingNthOfType(element: MemoraElement): number {
   return 1;
 }
 
-export function generateUniqueSelector(node: MemoraElement, root: MemoraDocument | MemoraElement): string {
+// How often each candidate selector occurs in the page, built once per snapshot. Checking a candidate
+// with querySelectorAll scans the whole document; on link-heavy pages (thousands of links, 10k+ nodes)
+// that made snapshots take minutes and froze the process.
+export interface SelectorIndex {
+  counts: Map<string, number>;
+  // tag.class -> elements, for multi-class candidates
+  byClass: Map<string, MemoraElement[]>;
+}
+
+const INDEXED_ATTRS = ['name', 'aria-label', 'placeholder'];
+const TEST_ATTRS = ['data-testid', 'data-test-id', 'data-qa', 'data-cy'];
+const SIMPLE_ID = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
+const SIMPLE_CLASS = /^[a-zA-Z_-][a-zA-Z0-9_-]*$/;
+const q = (v: string) => v.replace(/"/g, '\\"');
+
+export function buildSelectorIndex(root: MemoraDocument | MemoraElement): SelectorIndex {
+  const counts = new Map<string, number>();
+  const byClass = new Map<string, MemoraElement[]>();
+  const inc = (k: string) => counts.set(k, (counts.get(k) || 0) + 1);
+  const stack: MemoraNode[] = [...root.childNodes];
+  while (stack.length) {
+    const n = stack.pop()!;
+    if (!(n instanceof MemoraElement)) continue;
+    const tag = n.tagName.toLowerCase();
+    const id = n.getAttribute('id');
+    if (id) inc(`id:${id}`);
+    for (const a of TEST_ATTRS) {
+      const v = n.getAttribute(a);
+      if (v !== null) inc(`[${a}="${q(v)}"]`);
+    }
+    for (const a of INDEXED_ATTRS) {
+      const v = n.getAttribute(a);
+      if (v !== null) inc(`${tag}[${a}="${q(v)}"]`);
+    }
+    const cls = n.getAttribute('class');
+    if (cls) {
+      for (const c of new Set(cls.trim().split(/\s+/))) {
+        if (!SIMPLE_CLASS.test(c)) continue;
+        const k = `${tag}.${c}`;
+        inc(k);
+        let list = byClass.get(k);
+        if (!list) byClass.set(k, (list = []));
+        list.push(n);
+      }
+    }
+    for (let i = n.childNodes.length - 1; i >= 0; i--) stack.push(n.childNodes[i]);
+  }
+  return { counts, byClass };
+}
+
+export function generateUniqueSelector(node: MemoraElement, root: MemoraDocument | MemoraElement, index?: SelectorIndex): string {
   const tag = node.tagName.toLowerCase();
+  // With an index, a candidate is unique when it occurs once (the node itself has the attribute)
+  const unique = (cand: string, key: string = cand) => (index ? index.counts.get(key) === 1 : isUnique(cand, node, root));
 
   // 1. Try standard simple ID
   if (node.id) {
-    if (/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(node.id)) {
+    if (SIMPLE_ID.test(node.id)) {
       const cand = `#${node.id}`;
-      if (isUnique(cand, node, root)) return cand;
+      if (unique(cand, `id:${node.id}`)) return cand;
     }
-    const idAttr = `[id="${node.id.replace(/"/g, '\\"')}"]`;
-    if (isUnique(idAttr, node, root)) return idAttr;
+    const idAttr = `[id="${q(node.id)}"]`;
+    if (unique(idAttr, `id:${node.id}`)) return idAttr;
   }
 
   // 2. Try Test ID attributes
-  for (const attr of ['data-testid', 'data-test-id', 'data-qa', 'data-cy']) {
+  for (const attr of TEST_ATTRS) {
     const val = node.getAttribute(attr);
     if (val) {
-      const cand = `[${attr}="${val.replace(/"/g, '\\"')}"]`;
-      if (isUnique(cand, node, root)) return cand;
+      const cand = `[${attr}="${q(val)}"]`;
+      if (unique(cand)) return cand;
     }
   }
 
   // 3. Try name attribute
   const name = node.getAttribute('name');
   if (name) {
-    const cand = `${tag}[name="${name.replace(/"/g, '\\"')}"]`;
-    if (isUnique(cand, node, root)) return cand;
+    const cand = `${tag}[name="${q(name)}"]`;
+    if (unique(cand)) return cand;
   }
 
   // 4. Try aria-label
   const ariaLabel = node.getAttribute('aria-label');
   if (ariaLabel) {
-    const cand = `${tag}[aria-label="${ariaLabel.replace(/"/g, '\\"')}"]`;
-    if (isUnique(cand, node, root)) return cand;
+    const cand = `${tag}[aria-label="${q(ariaLabel)}"]`;
+    if (unique(cand)) return cand;
   }
 
   // 5. Try placeholder
   const placeholder = node.getAttribute('placeholder');
   if (placeholder) {
-    const cand = `${tag}[placeholder="${placeholder.replace(/"/g, '\\"')}"]`;
-    if (isUnique(cand, node, root)) return cand;
+    const cand = `${tag}[placeholder="${q(placeholder)}"]`;
+    if (unique(cand)) return cand;
   }
 
   // 6. Try unique classes
@@ -148,11 +200,22 @@ export function generateUniqueSelector(node: MemoraElement, root: MemoraDocument
     const classes = node.className.trim().split(/\s+/).filter(c => /^[a-zA-Z_-][a-zA-Z0-9_-]*$/.test(c));
     for (const cls of classes) {
       const cand = `${tag}.${cls}`;
-      if (isUnique(cand, node, root)) return cand;
+      if (unique(cand)) return cand;
     }
     if (classes.length > 1) {
-      const cand = `${tag}.${classes.slice(0, 3).join('.')}`;
-      if (isUnique(cand, node, root)) return cand;
+      const combo = classes.slice(0, 3);
+      const cand = `${tag}.${combo.join('.')}`;
+      if (index) {
+        const bucket = index.byClass.get(`${tag}.${combo[0]}`) || [];
+        let n = 0;
+        for (const el of bucket) {
+          const set = new Set((el.getAttribute('class') || '').trim().split(/\s+/));
+          if (combo.every((c) => set.has(c)) && ++n > 1) break;
+        }
+        if (n === 1) return cand;
+      } else if (isUnique(cand, node, root)) {
+        return cand;
+      }
     }
   }
 
@@ -162,7 +225,7 @@ export function generateUniqueSelector(node: MemoraElement, root: MemoraDocument
 
   while (current && current !== root && current.nodeType === 1) {
     const curTag = current.tagName.toLowerCase();
-    if (current.id && /^[a-zA-Z][a-zA-Z0-9_-]*$/.test(current.id)) {
+    if (current.id && SIMPLE_ID.test(current.id) && (!index || index.counts.get(`id:${current.id}`) === 1)) {
       path.unshift(`#${current.id}`);
       break;
     }
@@ -172,11 +235,36 @@ export function generateUniqueSelector(node: MemoraElement, root: MemoraDocument
   }
 
   const hierarchical = path.join(' > ');
-  if (hierarchical && isUnique(hierarchical, node, root)) {
+  // An nth-of-type chain from the root or from a unique id names exactly one element
+  if (hierarchical && (index || isUnique(hierarchical, node, root))) {
     return hierarchical;
   }
 
   return hierarchical || tag;
+}
+
+// Input types that are buttons, toggles or hidden: their value is a label or a constant, not typed text
+const BUTTON_LIKE_INPUTS = ['submit', 'button', 'reset', 'image', 'checkbox', 'radio', 'hidden', 'file', 'range', 'color'];
+
+// Text of the <label> for a form control: <label for="id"> or a wrapping <label>
+function labelText(el: MemoraElement, doc: MemoraDocument): string {
+  const tag = el.tagName.toLowerCase();
+  if (!['input', 'select', 'textarea'].includes(tag)) return '';
+  const id = el.getAttribute('id');
+  if (id) {
+    for (const lbl of doc.querySelectorAll('label')) {
+      if (lbl.getAttribute('for') === id) return lbl.textContent.trim();
+    }
+  }
+  let p = el.parentNode;
+  while (p && p instanceof MemoraElement) {
+    if (p.tagName.toLowerCase() === 'label') {
+      // The label's own words, without the text of the control inside it
+      return p.childNodes.filter((c) => c !== el).map((c) => c.textContent || '').join(' ').trim();
+    }
+    p = p.parentNode;
+  }
+  return '';
 }
 
 export function extractSemanticSnapshot(
@@ -199,6 +287,7 @@ export function extractSemanticSnapshot(
 
   const actions: InteractiveElement[] = [];
   let actionCounter = 1;
+  let selectorIndex: SelectorIndex | undefined;
 
   function walk(node: MemoraNode) {
     if (node instanceof MemoraElement) {
@@ -229,22 +318,28 @@ export function extractSemanticSnapshot(
       const hasOnClick = node.hasAttribute('onclick');
 
       if (isNativeInteractive || isAriaInteractive || hasTabIndex || hasOnClick) {
-        // Collect accessible name / text
+        const isInput = tag === 'input' || tag === 'textarea' || tag === 'select';
+        const rawType = (node.getAttribute('type') || '').toLowerCase();
+        // Fields whose value is what the user typed: never their name, and never shown verbatim
+        const isTextField = tag === 'textarea' || (tag === 'input' && !BUTTON_LIKE_INPUTS.includes(rawType));
+
+        // Accessible name: aria-label, then <label>, then placeholder / title; button-like controls may use their value
         let text = (
           node.getAttribute('aria-label') ||
+          labelText(node, doc) ||
           node.getAttribute('placeholder') ||
           node.getAttribute('title') ||
-          node.getAttribute('value') ||
-          node.textContent
+          (isTextField ? '' : node.getAttribute('value') || node.textContent || '')
         ).trim();
 
         text = text.replace(/\s+/g, ' ').slice(0, 80);
 
-        const isInput = tag === 'input' || tag === 'textarea' || tag === 'select';
-        const isClickable = !isInput || node.getAttribute('type') === 'submit' || node.getAttribute('type') === 'button';
+        const isClickable = !isInput || rawType === 'submit' || rawType === 'button';
         const type = node.getAttribute('type') || (tag === 'textarea' ? 'textarea' : tag === 'select' ? 'select' : undefined);
         const name = node.getAttribute('name') || undefined;
-        const value = node.getAttribute('value') || undefined;
+        // Passwords never leave the page; other typed values are kept for code but hidden from the text maps
+        const value = rawType === 'password' ? undefined : (tag === 'textarea' ? node.textContent || node.getAttribute('value') : node.getAttribute('value')) || undefined;
+        const filled = isTextField && !!(rawType === 'password' ? node.getAttribute('value') : value);
         const placeholder = node.getAttribute('placeholder') || undefined;
         const href = node.getAttribute('href') || undefined;
 
@@ -255,7 +350,7 @@ export function extractSemanticSnapshot(
         const selected = node.hasAttribute('selected') || node.getAttribute('aria-selected') === 'true';
 
         // Collision-free unique selector
-        const selector = generateUniqueSelector(node, doc);
+        const selector = generateUniqueSelector(node, doc, (selectorIndex ??= buildSelectorIndex(doc)));
 
         const actionId = `@${actionCounter++}`;
         (node as any).__actionId = actionId;
@@ -277,6 +372,8 @@ export function extractSemanticSnapshot(
           checked: checked || undefined,
           expanded: expanded || undefined,
           selected: selected || undefined,
+          valueHidden: isTextField || undefined,
+          filled: filled || undefined,
         });
       }
 
@@ -299,7 +396,11 @@ export function extractSemanticSnapshot(
     let details = '';
     if (act.type) details += ` type="${act.type}"`;
     if (act.placeholder) details += ` placeholder="${act.placeholder}"`;
-    if (act.value) details += ` value="${act.value}"`;
+    if (act.valueHidden) {
+      if (act.filled) details += ` [FILLED]`;
+    } else if (act.value) {
+      details += ` value="${act.value}"`;
+    }
     if (act.href) {
       const cleanHref = cleanUrlForLLM(act.href);
       if (cleanHref) details += ` href="${cleanHref}"`;

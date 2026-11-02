@@ -4,6 +4,7 @@ import { parseHTML } from '../dom/parser.js';
 import { extractSemanticSnapshot } from '../distiller/semantic-tree.js';
 import { convertToMarkdown, MarkdownOptions } from '../distiller/markdown.js';
 import { extractStructuredData, StructuredPageData } from '../distiller/structured-data.js';
+import { extractWithSchema, DynamicExtractionSchema, UniversalExtractedData } from '../distiller/schema-extractor.js';
 import { computePageDiff } from '../distiller/diff.js';
 import { saveSessionToFile, loadSessionFromFile, validateSessionData } from './session.js';
 import { SemanticPageSnapshot, NetworkOptions, SnapshotOptions, PageDiff, FormFillOptions, FormFillResult, SessionData } from '../types/index.js';
@@ -12,6 +13,8 @@ import { toPlaywrightProxy } from '../network/proxy.js';
 import { detectChallenge, ChallengeSignal } from '../challenge/detector.js';
 import { ChallengeCooldown, DEFAULT_CHALLENGE_COOLDOWN_SEC } from '../challenge/cooldown.js';
 import { ChallengeDetectedError } from '../challenge/errors.js';
+import { DomainGuard, DomainDecision } from '../firewall/domains.js';
+import { FirewallBlockedError } from '../firewall/errors.js';
 
 export function findSystemChrome(): string | null {
   const candidatePaths = [
@@ -50,10 +53,15 @@ export class ChromeEngine {
   // Last main-frame document response and a counter of main-frame navigations (human handoff)
   private mainResponse: { url: string; status: number; headers: Record<string, string> } | null = null;
   private mainNavigations: number = 0;
+  // Firewall domain rules (NetworkOptions.domainPolicy) and the last main-frame navigation they refused
+  private domains: DomainGuard | null;
+  private robots: RobotsStore | null = null;
+  private firewallBlock: DomainDecision | null = null;
 
   constructor(network: NetworkOptions = {}, options: { headless?: boolean } = {}) {
     this.headless = options.headless ?? true;
     this.cooldown = new ChallengeCooldown(network.challengeCooldownSec ?? DEFAULT_CHALLENGE_COOLDOWN_SEC);
+    this.domains = network.domainPolicy ? new DomainGuard(network.domainPolicy) : null;
     const found = findSystemChrome();
     if (!found) {
       throw new Error('No Google Chrome or Microsoft Edge executable found on this machine.');
@@ -87,23 +95,22 @@ export class ChromeEngine {
         userAgent: this.network.userAgent || (this.headless ? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36' : undefined),
         extraHTTPHeaders: this.network.headers,
         ignoreHTTPSErrors: this.network.insecureTls,
+        acceptDownloads: this.network.acceptDownloads ?? true,
       });
 
-      if (this.network.obeyRobots) {
-        // Same rules as the native engine: every http(s) request, subresources included
-        const robots = new RobotsStore({
-          agent: this.network.robotsAgent,
-          userAgent: this.network.userAgent,
-        });
-        await this.context.route('**/*', async (route) => {
-          const url = route.request().url();
-          if (!RobotsStore.robotsUrlFor(url) || await robots.isAllowed(url)) return route.continue();
-          this.logs.push({ type: 'warning', text: `[Memora] blocked by robots.txt: ${url}`, timestamp: Date.now() });
-          return route.abort('blockedbyclient');
+      // Same rules as the native engine: every http(s) request, subresources included
+      this.robots = this.network.obeyRobots
+        ? new RobotsStore({ agent: this.network.robotsAgent, userAgent: this.network.userAgent })
+        : null;
+      if (this.robots || this.domains) {
+        // Popups opened by the page get the same checks
+        this.context.on('page', (p) => {
+          if (p !== this.page) this.interceptRequests(p).catch(() => {});
         });
       }
 
       this.page = await this.context.newPage();
+      if (this.robots || this.domains) await this.interceptRequests(this.page);
 
       this.page.on('console', (msg) => {
         this.logs.push({
@@ -193,11 +200,21 @@ export class ChromeEngine {
 
   public async goto(url: string, timeoutMs: number = 20000): Promise<{ status: number; url: string }> {
     const page = await this.ensurePage();
+    this.domains?.assertAllowed(url, { navigation: true });
     this.cooldown.assertClear(url);
-    const resp = await page.goto(url, {
-      waitUntil: 'domcontentloaded',
-      timeout: this.network.timeoutMs ?? timeoutMs
-    });
+    this.firewallBlock = null;
+    let resp: Response | null;
+    try {
+      resp = await page.goto(url, {
+        waitUntil: 'domcontentloaded',
+        timeout: this.network.timeoutMs ?? timeoutMs
+      });
+    } catch (e) {
+      // A redirect into a blocked domain aborts in the request router; report it as the firewall's refusal
+      await this.settleBlockedNavigation(page, e);
+      this.throwIfFirewallBlocked();
+      throw e;
+    }
 
     // If an empty SPA root container (#root or #app) exists, wait for React/Vue hydration
     try {
@@ -213,6 +230,62 @@ export class ChromeEngine {
     await this.detectOn(page, resp);
     const status = resp ? resp.status() : 200;
     return { status, url: page.url() };
+  }
+
+  // Firewall domain rules and --obey-robots for every request of a page. Uses the CDP Fetch domain rather
+  // than Playwright's route(): route() is not called for redirect hops, Fetch pauses each one, so an
+  // allowed site cannot redirect the browser to a blocked one.
+  private async interceptRequests(page: Page): Promise<void> {
+    const cdp = await page.context().newCDPSession(page);
+    const domains = this.domains;
+    const robots = this.robots;
+    let mainFrameId: string = (await cdp.send('Page.getFrameTree')).frameTree.frame.id;
+    await cdp.send('Page.enable');
+    cdp.on('Page.frameNavigated', (e: any) => {
+      if (!e.frame.parentId) mainFrameId = e.frame.id;
+    });
+    await cdp.send('Fetch.enable', { patterns: [{ urlPattern: '*', requestStage: 'Request' }] });
+    cdp.on('Fetch.requestPaused', async (e: any) => {
+      const url: string = e.request.url;
+      const block = (why: string) => {
+        this.logs.push({ type: 'warning', text: `[Memora] blocked by ${why}: ${url}`, timestamp: Date.now() });
+        return cdp.send('Fetch.failRequest', { requestId: e.requestId, errorReason: 'BlockedByClient' }).catch(() => {});
+      };
+      try {
+        if (domains) {
+          const d = domains.check(url, { navigation: e.resourceType === 'Document' && e.frameId === mainFrameId });
+          if (!d.allowed) {
+            domains.report(d);
+            if (d.enforced) {
+              if (d.navigation) this.firewallBlock = d;
+              return await block(`firewall (${d.rule})`);
+            }
+          }
+        }
+        if (robots && RobotsStore.robotsUrlFor(url)) {
+          if (!(await robots.isAllowed(url))) return await block('robots.txt');
+          await robots.waitTurn(url);
+        }
+        await cdp.send('Fetch.continueRequest', { requestId: e.requestId });
+      } catch {
+        // Page closed mid-request, or the request is already gone
+        await cdp.send('Fetch.continueRequest', { requestId: e.requestId }).catch(() => {});
+      }
+    });
+  }
+
+  // Chrome commits its error page (chrome-error://) for a refused navigation only after goto() has
+  // rejected; without waiting for it, that commit interrupts the agent's next navigation
+  private async settleBlockedNavigation(page: Page, err: unknown): Promise<void> {
+    if (!/ERR_BLOCKED_BY_CLIENT/.test(String((err as any)?.message ?? err))) return;
+    await page.waitForURL((u) => u.protocol === 'chrome-error:', { timeout: 2000 }).catch(() => {});
+  }
+
+  private throwIfFirewallBlocked(): void {
+    const d = this.firewallBlock;
+    if (!d) return;
+    this.firewallBlock = null;
+    throw new FirewallBlockedError(`Blocked by Orbis firewall: ${d.reason} (${d.url})`, d.rule, { url: d.url, capability: 'navigate' });
   }
 
   public async getSemanticSnapshot(options: SnapshotOptions = {}): Promise<SemanticPageSnapshot> {
@@ -420,6 +493,29 @@ export class ChromeEngine {
     return extractStructuredData(doc, page.url());
   }
 
+  public async extractSchema(schema?: DynamicExtractionSchema): Promise<UniversalExtractedData> {
+    const page = await this.ensurePage();
+    const html = await page.content();
+    const doc = parseHTML(html);
+    return extractWithSchema(doc, page.url(), schema);
+  }
+
+  // Tag, type attribute and form membership of an action target (firewall: is this click a form submit?)
+  public async describeTarget(target: string): Promise<{ tag: string; type: string | null; inForm: boolean } | null> {
+    const page = await this.ensurePage();
+    const selector = target.startsWith('@') ? this.actionSelectorMap.get(target) : target;
+    if (!selector) return null;
+    try {
+      return await page.$eval(selector, (el: any) => ({
+        tag: el.tagName.toLowerCase(),
+        type: el.getAttribute('type'),
+        inForm: !!(el.form || el.closest('form')),
+      }));
+    } catch {
+      return null;
+    }
+  }
+
   public async act(target: string, type: 'click' | 'type', text?: string): Promise<{ success: boolean; url: string; title: string }> {
     const page = await this.ensurePage();
     let selector = target;
@@ -555,7 +651,15 @@ export class ChromeEngine {
   public async reload(): Promise<{ status: number; url: string }> {
     const page = await this.ensurePage();
     this.cooldown.assertClear(page.url());
-    const resp = await page.reload({ waitUntil: 'load' });
+    this.firewallBlock = null;
+    let resp: Response | null;
+    try {
+      resp = await page.reload({ waitUntil: 'load' });
+    } catch (e) {
+      await this.settleBlockedNavigation(page, e);
+      this.throwIfFirewallBlocked();
+      throw e;
+    }
     await page.waitForTimeout(500);
     await this.detectOn(page, resp);
     return { status: resp ? resp.status() : 200, url: page.url() };

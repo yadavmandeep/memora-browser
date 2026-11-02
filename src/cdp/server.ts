@@ -1,10 +1,13 @@
 import http from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { MemoraBrowser } from '../engine/browser.js';
-import { CDPDispatcher } from './dispatcher.js';
+import { CDPDispatcher, BROWSER_SESSION, newConnection } from './dispatcher.js';
 import { CDPRequest, CDPResponse, CDPEvent } from '../types/index.js';
 import { ChallengeDetectedError } from '../challenge/errors.js';
 import { ChallengeCooldownError } from '../challenge/cooldown.js';
+import { FirewallBlockedError } from '../firewall/errors.js';
+import { bindAddress, urlHost, isCrossSiteBrowserRequest, resolveSessionPath, SessionPathError } from '../network/server-guard.js';
+import { ORBIS_VERSION } from '../version.js';
 
 function readJsonBody(req: http.IncomingMessage): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -23,8 +26,15 @@ function readJsonBody(req: http.IncomingMessage): Promise<any> {
 }
 
 // Challenge errors get their own status and a machine-readable body instead of a generic 500:
-// stop mode â†’ 409, host in cooldown â†’ 429 with Retry-After
+// stop mode → 409, host in cooldown → 429 with Retry-After, firewall domain rule → 403
 function challengeErrorResponse(err: any): { status: number; headers: Record<string, string>; body: any } | null {
+  if (err instanceof FirewallBlockedError) {
+    return {
+      status: 403,
+      headers: {},
+      body: { error: err.message, code: err.code, rule: err.rule, url: err.details.url },
+    };
+  }
   if (err instanceof ChallengeDetectedError) {
     return {
       status: 409,
@@ -40,6 +50,11 @@ function challengeErrorResponse(err: any): { status: number; headers: Record<str
     };
   }
   return null;
+}
+
+function methodNotAllowed(res: http.ServerResponse, allow: string): void {
+  res.writeHead(405, { Allow: allow });
+  res.end(JSON.stringify({ error: 'Method not allowed', code: 'ERR_METHOD_NOT_ALLOWED' }));
 }
 
 export class CDPServer {
@@ -87,18 +102,33 @@ export class CDPServer {
     return false;
   }
 
+  private targetJson(page: { id: string; url: string; title(): string }) {
+    return {
+      description: '',
+      devtoolsFrontendUrl: `/devtools/inspector.html?ws=${this.host}:${this.port}/devtools/page/${page.id}`,
+      id: page.id,
+      title: page.title(),
+      type: 'page',
+      url: page.url,
+      webSocketDebuggerUrl: `ws://${urlHost(this.host)}:${this.port}/devtools/page/${page.id}`
+    };
+  }
+
   private handleHttpRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
-    const url = new URL(req.url || '/', `http://${this.host}:${this.port}`);
+    const url = new URL(req.url || '/', `http://${urlHost(this.host)}:${this.port}`);
     const pathname = url.pathname.replace(/\/+$/, '') || '/';
 
     res.setHeader('Content-Type', 'application/json');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-    if (req.method === 'OPTIONS') {
-      res.writeHead(204);
-      res.end();
+    // Web pages open in the user's own browser must not drive the daemon (no CORS, no drive-by requests)
+    if (isCrossSiteBrowserRequest(req)) {
+      res.writeHead(403);
+      res.end(JSON.stringify({ error: 'Requests from web pages are not allowed', code: 'ERR_FORBIDDEN_ORIGIN' }));
+      return;
+    }
+    if (!this.isAuthorized(req, url)) {
+      res.writeHead(401, { 'WWW-Authenticate': 'Bearer' });
+      res.end(JSON.stringify({ error: 'Missing or wrong API key (x-api-key header, Authorization: Bearer, or ?apiKey=)', code: 'ERR_UNAUTHORIZED' }));
       return;
     }
 
@@ -110,11 +140,11 @@ export class CDPServer {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36',
         'V8-Version': '12.8.0',
         'WebKit-Version': '537.36',
-        product: 'Orbis/0.1.2',
+        product: `Orbis/${ORBIS_VERSION}`,
         engine: 'Memora Browser Engine (MBE)',
         website: 'https://orbis.memora.company',
         company: 'https://memora.company',
-        webSocketDebuggerUrl: `ws://${this.host}:${this.port}/devtools/browser/memora-root`
+        webSocketDebuggerUrl: `ws://${urlHost(this.host)}:${this.port}/devtools/browser/memora-root`
       };
       res.writeHead(200);
       res.end(JSON.stringify(data, null, 2));
@@ -131,7 +161,7 @@ export class CDPServer {
         title: p.title(),
         type: 'page',
         url: p.url,
-        webSocketDebuggerUrl: `ws://${this.host}:${this.port}/devtools/page/${p.id}`
+        webSocketDebuggerUrl: `ws://${urlHost(this.host)}:${this.port}/devtools/page/${p.id}`
       }));
       res.writeHead(200);
       res.end(JSON.stringify(list, null, 2));
@@ -140,18 +170,32 @@ export class CDPServer {
 
     // 3. /json/new
     if (pathname === '/json/new') {
+      if (req.method !== 'GET' && req.method !== 'PUT') return methodNotAllowed(res, 'GET, PUT');
+      // Chrome format: /json/new?https://example.com ; also ?url=<encoded>
+      const rawQuery = url.search.slice(1);
+      let target = url.searchParams.has('url') && /^url=/.test(rawQuery) ? url.searchParams.get('url') || '' : rawQuery;
+      if (target && !/^[a-z][a-z0-9+.-]*:/i.test(target)) {
+        try { target = decodeURIComponent(target); } catch { /* keep raw */ }
+      }
       const page = this.browser.newPage();
-      const target = {
-        description: '',
-        devtoolsFrontendUrl: `/devtools/inspector.html?ws=${this.host}:${this.port}/devtools/page/${page.id}`,
-        id: page.id,
-        title: page.title(),
-        type: 'page',
-        url: page.url,
-        webSocketDebuggerUrl: `ws://${this.host}:${this.port}/devtools/page/${page.id}`
+      const answer = () => {
+        res.writeHead(200);
+        res.end(JSON.stringify(this.targetJson(page), null, 2));
       };
-      res.writeHead(200);
-      res.end(JSON.stringify(target, null, 2));
+      if (!target || target === 'about:blank') {
+        answer();
+        return;
+      }
+      page.goto(target).then(answer, (err: any) => {
+        const ch = challengeErrorResponse(err);
+        if (ch) {
+          res.writeHead(ch.status, ch.headers);
+          res.end(JSON.stringify(ch.body, null, 2));
+          return;
+        }
+        // As in Chrome, the tab exists even if the load failed
+        answer();
+      });
       return;
     }
 
@@ -223,7 +267,8 @@ export class CDPServer {
     }
 
     // 7. Agentic Endpoint: /orbis/fill-form & /memora/fill-form (Atomic multi-field form population)
-    if ((pathname === '/orbis/fill-form' || pathname === '/memora/fill-form') && req.method === 'POST') {
+    if (pathname === '/orbis/fill-form' || pathname === '/memora/fill-form') {
+      if (req.method !== 'POST') return methodNotAllowed(res, 'POST');
       readJsonBody(req).then(async body => {
         const targetId = body.id || url.searchParams.get('id');
         const page = targetId ? this.browser.getPage(targetId) : this.browser.defaultPage;
@@ -240,7 +285,7 @@ export class CDPServer {
         try {
           const fillResult = await page.fillForm({
             fields: body.fields,
-            submit: body.submit ?? body.submitActionId ?? true,
+            submit: body.submit ?? body.submitActionId ?? false,
             steps: body.steps
           });
           res.writeHead(200);
@@ -262,9 +307,36 @@ export class CDPServer {
       return;
     }
 
-    // 8. Agentic Endpoint: /orbis/act & /memora/act (Direct action by @actionId or selector)
-    if ((pathname === '/orbis/act' || pathname === '/memora/act') && req.method === 'POST') {
+    // Agentic Endpoint: /orbis/select-option (Python select_option)
+    if (pathname === '/orbis/select-option' || pathname === '/memora/select-option') {
+      if (req.method !== 'POST') return methodNotAllowed(res, 'POST');
       readJsonBody(req).then(body => {
+        const targetId = body.id || url.searchParams.get('id');
+        const page = targetId ? this.browser.getPage(targetId) : this.browser.defaultPage;
+        if (!page) {
+          res.writeHead(404);
+          res.end(JSON.stringify({ error: 'Page not found' }));
+          return;
+        }
+        if (!body.target || body.value === undefined) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: 'Expected "target" and "value"' }));
+          return;
+        }
+        const success = page.selectDropdownOption(String(body.target), String(body.value));
+        res.writeHead(success ? 200 : 404);
+        res.end(JSON.stringify({ success, url: page.url, snapshot: page.peekSemanticSnapshot() }, null, 2));
+      }).catch(err => {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: err.message }));
+      });
+      return;
+    }
+
+    // 8. Agentic Endpoint: /orbis/act & /memora/act (Direct action by @actionId or selector)
+    if (pathname === '/orbis/act' || pathname === '/memora/act') {
+      if (req.method !== 'POST') return methodNotAllowed(res, 'POST');
+      readJsonBody(req).then(async body => {
         const targetId = body.id || url.searchParams.get('id');
         const page = targetId ? this.browser.getPage(targetId) : this.browser.defaultPage;
         if (!page) {
@@ -282,10 +354,11 @@ export class CDPServer {
         if (body.type === 'type' && body.text !== undefined) {
           success = page.type(actionId, body.text);
         } else {
-          success = page.click(actionId);
+          success = await page.click(actionId);
         }
         res.writeHead(200);
-        res.end(JSON.stringify({ success, snapshot: page.getSemanticSnapshot() }, null, 2));
+        // peek: the caller's next /orbis/diff must still compare against the state before this action
+        res.end(JSON.stringify({ success, url: page.url, snapshot: page.peekSemanticSnapshot() }, null, 2));
       }).catch(err => {
         res.writeHead(400);
         res.end(JSON.stringify({ error: err.message }));
@@ -295,6 +368,7 @@ export class CDPServer {
 
     // 9. Agentic Endpoint: /orbis/session & /memora/session (Save / load / export session)
     if (pathname === '/orbis/session' || pathname === '/memora/session') {
+      if (req.method !== 'GET' && req.method !== 'POST') return methodNotAllowed(res, 'GET, POST');
       const targetId = url.searchParams.get('id');
       const page = targetId ? this.browser.getPage(targetId) : this.browser.defaultPage;
       if (!page) {
@@ -309,7 +383,7 @@ export class CDPServer {
       } else if (req.method === 'POST') {
         readJsonBody(req).then(body => {
           if (body.filePath) {
-            page.loadSession(body.filePath);
+            page.loadSession(resolveSessionPath(body.filePath));
             res.writeHead(200);
             res.end(JSON.stringify({ success: true, url: page.url }));
           } else if (body.session) {
@@ -321,14 +395,15 @@ export class CDPServer {
             res.end(JSON.stringify({ error: 'Expected "filePath" or "session" in request body' }));
           }
         }).catch(err => {
-          res.writeHead(400);
-          res.end(JSON.stringify({ error: err.message }));
+          res.writeHead(err instanceof SessionPathError ? 403 : 400);
+          res.end(JSON.stringify(err instanceof SessionPathError ? { error: err.message, code: err.code } : { error: err.message }));
         });
       }
       return;
     }
 
-    if ((pathname === '/orbis/session/save' || pathname === '/memora/session/save') && req.method === 'POST') {
+    if (pathname === '/orbis/session/save' || pathname === '/memora/session/save') {
+      if (req.method !== 'POST') return methodNotAllowed(res, 'POST');
       readJsonBody(req).then(body => {
         const targetId = body.id || url.searchParams.get('id');
         const page = targetId ? this.browser.getPage(targetId) : this.browser.defaultPage;
@@ -342,12 +417,12 @@ export class CDPServer {
           res.end(JSON.stringify({ error: 'Missing "filePath"' }));
           return;
         }
-        page.saveSession(body.filePath);
+        page.saveSession(resolveSessionPath(body.filePath));
         res.writeHead(200);
         res.end(JSON.stringify({ success: true, filePath: body.filePath }));
       }).catch(err => {
-        res.writeHead(400);
-        res.end(JSON.stringify({ error: err.message }));
+        res.writeHead(err instanceof SessionPathError ? 403 : 400);
+        res.end(JSON.stringify(err instanceof SessionPathError ? { error: err.message, code: err.code } : { error: err.message }));
       });
       return;
     }
@@ -360,7 +435,13 @@ export class CDPServer {
         res.end(JSON.stringify({ error: 'Missing url parameter' }));
         return;
       }
-      const page = this.browser.defaultPage;
+      const targetId = url.searchParams.get('id');
+      const page = targetId ? this.browser.getPage(targetId) : this.browser.defaultPage;
+      if (!page) {
+        res.writeHead(404);
+        res.end(JSON.stringify({ error: 'Page not found' }));
+        return;
+      }
       page.goto(targetUrl).then(result => {
         res.writeHead(200);
         res.end(JSON.stringify({
@@ -389,7 +470,12 @@ export class CDPServer {
 
   private setupWebSocket(): void {
     this.httpServer.on('upgrade', (request, socket, head) => {
-      const url = new URL(request.url || '/', `http://${this.host}:${this.port}`);
+      const url = new URL(request.url || '/', `http://${urlHost(this.host)}:${this.port}`);
+      if (isCrossSiteBrowserRequest(request) || !this.isAuthorized(request, url)) {
+        socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+        socket.destroy();
+        return;
+      }
       if (url.pathname.startsWith('/devtools/')) {
         this.wss.handleUpgrade(request, socket, head, (ws) => {
           this.wss.emit('connection', ws, request);
@@ -400,7 +486,7 @@ export class CDPServer {
     });
 
     this.wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
-      const url = new URL(req.url || '/', `http://${this.host}:${this.port}`);
+      const url = new URL(req.url || '/', `http://${urlHost(this.host)}:${this.port}`);
       let targetPage = this.browser.defaultPage;
 
       // Check if connection is for a specific page id
@@ -409,6 +495,13 @@ export class CDPServer {
         const found = this.browser.getPage(match[1]);
         if (found) targetPage = found;
       }
+
+      const conn = newConnection();
+      ws.on('close', () => {
+        for (const fn of conn.cleanups) {
+          try { fn(); } catch {}
+        }
+      });
 
       const emitEvent = (event: CDPEvent) => {
         if (ws.readyState === WebSocket.OPEN) {
@@ -426,8 +519,11 @@ export class CDPServer {
             console.log('[CDP IN]', req.id, req.method, req.sessionId || '');
           }
           let sessionPage = targetPage;
-          if (req.sessionId) {
-            const found = this.browser.getPage(req.sessionId);
+          // Sessions are page ids (auto-attach) or ids handed out by attachToTarget / attachToBrowserTarget
+          const alias = req.sessionId ? conn.sessions.get(req.sessionId) : undefined;
+          const browserSession = alias === BROWSER_SESSION;
+          if (req.sessionId && !browserSession) {
+            const found = this.browser.getPage(alias || req.sessionId);
             if (!found) {
               // Session of a closed (or never attached) target, as Chrome reports it
               if (ws.readyState === WebSocket.OPEN) {
@@ -443,13 +539,15 @@ export class CDPServer {
           }
 
           const sessionEmit = (event: CDPEvent) => {
-            if (req.sessionId && !event.sessionId && !event.method.startsWith('Target.')) {
+            // A browser-level session receives every event it causes, Target.* included (as in Chrome)
+            if (req.sessionId && !event.sessionId && (browserSession || !event.method.startsWith('Target.'))) {
               event.sessionId = req.sessionId;
             }
             emitEvent(event);
           };
 
-          const response = await this.dispatcher.dispatch(req, sessionPage, sessionEmit);
+          const response = await this.dispatcher.dispatch(browserSession ? { ...req, sessionId: undefined } : req, sessionPage, sessionEmit, conn);
+          if (browserSession) response.sessionId = req.sessionId;
           if (process.env.DEBUG_CDP) {
             console.log('[CDP OUT]', response.id, response.sessionId || '');
           }
@@ -471,11 +569,14 @@ export class CDPServer {
   public async start(): Promise<void> {
     return new Promise((resolve, reject) => {
       this.httpServer.on('error', reject);
-      const bindHost = (this.host === 'localhost' || this.host === '127.0.0.1') ? '0.0.0.0' : this.host;
-      this.httpServer.listen(this.port, bindHost, () => {
+      this.httpServer.listen(this.port, bindAddress(this.host), () => {
         resolve();
       });
     });
+  }
+
+  public isListening(): boolean {
+    return this.httpServer.listening;
   }
 
   public stop(): Promise<void> {

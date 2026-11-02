@@ -26,4 +26,5 @@ export { ChallengeCooldown, ChallengeCooldownError } from './challenge/cooldown.
 export { ChallengeDetectedError } from './challenge/errors.js';
 export { HumanHandoff, hasDisplay, DEFAULT_HANDOFF_TIMEOUT_SEC } from './challenge/handoff.js';
 export type { HandoffState, HandoffStatus, HandoffEngine, HumanHandoffOptions } from './challenge/handoff.js';
+export * from './firewall/index.js';
 export * from './adapters/index.js';
