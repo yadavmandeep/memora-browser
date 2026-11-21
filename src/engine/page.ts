@@ -10,7 +10,7 @@ import type { OrbisBrowser } from './browser.js';
 import type { OrbisContext } from './context.js';
 import { extractSemanticSnapshot } from '../distiller/semantic-tree.js';
 import { convertToMarkdown } from '../distiller/markdown.js';
-import { extractStructuredData, StructuredPageData } from '../distiller/structured-data.js';
+import { extractStructuredData, extractScrapedContent, extractLinks, StructuredPageData, ScrapedPageContent, LinksGraph } from '../distiller/structured-data.js';
 import { extractWithSchema, DynamicExtractionSchema, UniversalExtractedData } from '../distiller/schema-extractor.js';
 import {
   SemanticPageSnapshot,
@@ -755,7 +755,7 @@ export class MemoraPage {
   }
 
   public getMarkdown(options: MarkdownOptions = {}): string {
-    return convertToMarkdown(this.document, options);
+    return convertToMarkdown(this.document, { baseUrl: this.url, ...options });
   }
 
   public diff(previous?: SemanticPageSnapshot, options?: SnapshotOptions): PageDiff {
@@ -959,6 +959,14 @@ export class MemoraPage {
 
   public getStructuredData(): StructuredPageData {
     return extractStructuredData(this.document, this.url);
+  }
+
+  public getScrapedContent(): ScrapedPageContent {
+    return extractScrapedContent(this.document, this.url);
+  }
+
+  public getLinks(): LinksGraph {
+    return extractLinks(this.document, this.url);
   }
 
   public extractSchema(schema?: DynamicExtractionSchema): UniversalExtractedData {

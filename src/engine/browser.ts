@@ -22,6 +22,9 @@ export class OrbisBrowser {
   public readonly pool: DispatcherPool;
   // High-concurrency safety threshold to prevent OOM
   public maxConcurrentPages: number = 100;
+  public readonly recycleAfter: number = 0;
+  private operationCount: number = 0;
+  private lastActiveTimes: Map<string, number> = new Map();
 
   constructor(options: BrowserOptions = {}) {
     this.options = {
@@ -38,6 +41,8 @@ export class OrbisBrowser {
     if (this.options.timeout !== undefined && this.options.network.timeoutMs === undefined) {
       this.options.network.timeoutMs = this.options.timeout;
     }
+    this.maxConcurrentPages = this.options.maxPages || 100;
+    this.recycleAfter = this.options.recycleAfter || 0;
     this.pool = new DispatcherPool(this.options.network!);
   }
 
@@ -132,10 +137,12 @@ export class OrbisBrowser {
 
   public _registerPage(page: OrbisPage): void {
     this.pages.set(page.id, page);
+    this.lastActiveTimes.set(page.id, Date.now());
   }
 
   public _unregisterPage(id: string): void {
     this.pages.delete(id);
+    this.lastActiveTimes.delete(id);
   }
 
   public _unregisterContext(id: string): void {
@@ -143,6 +150,77 @@ export class OrbisBrowser {
       this._defaultContext = null;
     }
     this.contexts.delete(id);
+  }
+
+  /**
+   * Touch a page timestamp to keep it active.
+   */
+  public touchPage(id: string): void {
+    if (this.pages.has(id)) {
+      this.lastActiveTimes.set(id, Date.now());
+    }
+  }
+
+  /**
+   * Close idle background pages that have been inactive longer than maxIdleMs.
+   */
+  public pruneIdlePages(maxIdleMs: number = 60000): number {
+    const now = Date.now();
+    let pruned = 0;
+    const defaultId = this.pages.size > 0 ? this.pages.keys().next().value : null;
+    for (const [id, lastTime] of Array.from(this.lastActiveTimes.entries())) {
+      if (id !== defaultId && now - lastTime > maxIdleMs) {
+        const page = this.pages.get(id);
+        if (page) {
+          page.close();
+          pruned++;
+        }
+      }
+    }
+    return pruned;
+  }
+
+  /**
+   * Record an operation towards the auto-recycle threshold.
+   */
+  public recordOperation(): void {
+    this.operationCount++;
+    if (this.recycleAfter > 0 && this.operationCount >= this.recycleAfter) {
+      this.recycle();
+    }
+  }
+
+  /**
+   * Recycle memory: clean idle tabs, empty contexts, and run GC.
+   */
+  public recycle(): void {
+    this.pruneIdlePages(30000);
+    this.operationCount = 0;
+    if (typeof (global as any).gc === 'function') {
+      try { (global as any).gc(); } catch {}
+    }
+  }
+
+  /**
+   * Diagnostic memory metrics for monitoring and auto-scaling.
+   */
+  public getMemoryStats(): {
+    rssMb: number;
+    heapUsedMb: number;
+    heapTotalMb: number;
+    activePages: number;
+    activeContexts: number;
+    operations: number;
+  } {
+    const mem = process.memoryUsage();
+    return {
+      rssMb: Math.round((mem.rss / 1024 / 1024) * 10) / 10,
+      heapUsedMb: Math.round((mem.heapUsed / 1024 / 1024) * 10) / 10,
+      heapTotalMb: Math.round((mem.heapTotal / 1024 / 1024) * 10) / 10,
+      activePages: this.pages.size,
+      activeContexts: this.contexts.size,
+      operations: this.operationCount
+    };
   }
 
   /**

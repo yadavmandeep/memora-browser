@@ -100,10 +100,31 @@ function isPrivateHost(hostname: string): boolean {
   const kind = isIP(h);
   if (kind === 4) {
     const [a, b] = h.split('.').map(Number);
-    return a === 10 || a === 127 || a === 0 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254) || (a === 100 && b >= 64 && b <= 127);
+    return (
+      a === 10 ||
+      a === 127 ||
+      a === 0 ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 169 && b === 254) ||
+      (a === 100 && b >= 64 && b <= 127) || // CGNAT (RFC 6598)
+      (a === 198 && (b === 18 || b === 19)) || // Benchmarking (RFC 2544)
+      a >= 224 // Multicast & Reserved (RFC 5771 & RFC 1112)
+    );
   }
   if (kind === 6) {
-    return h === '::1' || h === '::' || /^f[cd]/.test(h) || /^fe[89ab]/.test(h) || h.startsWith('::ffff:127.') || h.startsWith('::ffff:10.') || h.startsWith('::ffff:192.168.');
+    if (h.startsWith('::ffff:')) {
+      return isPrivateHost(h.slice(7));
+    }
+    return (
+      h === '::1' ||
+      h === '::' ||
+      /^f[cd]/i.test(h) || // Unique Local Address ULA (fc00::/7)
+      /^fe[89ab]/i.test(h) || // Link-local (fe80::/10)
+      /^ff/i.test(h) || // Multicast (ff00::/8)
+      h.startsWith('64:ff9b:') || // NAT64 (RFC 6052)
+      h.startsWith('2001:db8:') // Documentation (RFC 3849)
+    );
   }
   return false;
 }

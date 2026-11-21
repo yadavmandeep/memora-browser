@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { Command } from 'commander';
 import { OrbisBrowser } from '../engine/browser.js';
 import { NetworkOptions } from '../types/index.js';
@@ -40,7 +43,14 @@ function addNetworkOptions(cmd: Command): Command {
     .option('--challenge-cooldown <sec>', 'Pause requests to a host for this long after a CAPTCHA/bot challenge or 429 (default: 60, 0 disables; Retry-After wins)')
     .option('--allow-domain <pattern>', 'Firewall: only navigate to hosts matching this pattern (repeatable; "example.com" includes subdomains, "*.example.com" only subdomains, "example.com/app" a path prefix)', collect, [])
     .option('--block-domain <pattern>', 'Firewall: refuse every request to hosts matching this pattern (repeatable)', collect, [])
-    .option('--block-sensitive-domains', 'Firewall: refuse navigation to email, banking/payments, identity, cloud consoles, admin paths and cloud metadata endpoints');
+    .option('--block-sensitive-domains', 'Firewall: refuse navigation to email, banking/payments, identity, cloud consoles, admin paths and cloud metadata endpoints')
+    .option('--low-memory', 'Enable aggressive RAM reduction flags (caps V8 heap, disables GPU & background codecs)')
+    .option('--block-media', 'Block heavy media, video, and fonts to reduce RAM usage by up to 60%')
+    .option('--block-images', 'Block image downloads and image texture decoding')
+    .option('--strip-mode <mode>', 'Asset stripping mode: none, invisible (strips stylesheets, SVGs, hidden nodes), or all')
+    .option('--eco', 'Preset: Ultra-low RAM mode (~20MB RAM, blocks media/images, strips CSS)')
+    .option('--agent', 'Preset: Smart Agent mode (low RAM, adaptive Chrome/Native)')
+    .option('--secure', 'Preset: Military-grade security (strict firewall, private IP blocking)');
 }
 
 function addFirewallOptions(cmd: Command): Command {
@@ -118,6 +128,27 @@ function parseNetworkOptions(opts: any): NetworkOptions {
     const sec = Number(opts.challengeCooldown);
     if (!Number.isInteger(sec) || sec < 0) throw new Error(`Invalid --challenge-cooldown "${opts.challengeCooldown}": expected a whole number of seconds >= 0`);
     network.challengeCooldownSec = sec;
+  }
+  if (opts.lowMemory) network.lowMemory = true;
+  if (opts.blockMedia) network.blockMedia = true;
+  if (opts.blockImages) network.blockImages = true;
+  if (opts.eco) {
+    network.lowMemory = true;
+    network.blockMedia = true;
+    network.blockImages = true;
+    network.stripMode = 'invisible';
+  }
+  if (opts.agent) {
+    network.lowMemory = true;
+  }
+  if (opts.secure) {
+    network.domainPolicy = network.domainPolicy || { allow: [], block: [], blockSensitive: true };
+  }
+  if (opts.stripMode) {
+    if (opts.stripMode !== 'none' && opts.stripMode !== 'invisible' && opts.stripMode !== 'all') {
+      throw new Error(`Invalid --strip-mode "${opts.stripMode}": use "none", "invisible", or "all"`);
+    }
+    network.stripMode = opts.stripMode;
   }
   const allowDomains: string[] = opts.allowDomain || [];
   const blockDomains: string[] = opts.blockDomain || [];
@@ -260,9 +291,41 @@ async function runServer(options: any): Promise<void> {
     return;
   }
 
+  if (options.eco) {
+    options.lowMemory = true;
+    options.blockMedia = true;
+    options.blockImages = true;
+    options.stripMode = 'invisible';
+    options.recycleAfter = options.recycleAfter || 30;
+    options.maxPages = options.maxPages || 10;
+    options.engine = options.engine || 'native';
+  }
+  if (options.agent) {
+    options.lowMemory = true;
+    options.recycleAfter = options.recycleAfter || 50;
+    options.engine = options.engine || 'auto';
+  }
+  if (options.secure) {
+    options.firewall = options.firewall || 'strict';
+  }
+
   if (protocol !== 'cdp') fail(`Unknown --protocol "${protocol}". Use "cdp" or "webdriver".`);
 
-  const browser = new OrbisBrowser({ port, host, stealth, network });
+  const maxPages = options.maxPages ? parseInt(options.maxPages, 10) : undefined;
+  const recycleAfter = options.recycleAfter ? parseInt(options.recycleAfter, 10) : undefined;
+  const browser = new OrbisBrowser({
+    port,
+    host,
+    unixSocket: options.unixSocket,
+    stealth,
+    network,
+    maxPages,
+    recycleAfter,
+    lowMemory: options.lowMemory,
+    blockMedia: options.blockMedia,
+    blockImages: options.blockImages,
+    stripMode: options.stripMode
+  });
 
   // One-shot eval mode
   if (options.eval) {
@@ -309,7 +372,7 @@ async function runServer(options: any): Promise<void> {
 
   console.log(renderOrbisBanner('cdp', {
     host,
-    port,
+    port: options.unixSocket ? `unix:${options.unixSocket}` : port,
     stealth,
     memUsage,
     proxy: describeProxy(network),
@@ -331,8 +394,11 @@ function addServerOptions(cmd: Command): Command {
   return addNetworkOptions(cmd
     .option('-p, --port <number>', 'CDP / WebDriver / HTTP port', '9222')
     .option('-h, --host <string>', 'Host address', 'localhost')
+    .option('--unix-socket <path>', 'Serve CDP / WebDriver over a Unix domain socket or Windows named pipe instead of TCP')
     .option('--protocol <protocol>', 'Automation protocol to serve: cdp (Playwright/Puppeteer) or webdriver (Selenium)', 'cdp')
     .option('--engine <engine>', 'Engine backend: native (ultra-fast zero-graphics), chrome (system Chromium), or auto', 'auto')
+    .option('--max-pages <number>', 'Maximum concurrent browser tabs/pages (default: 100)')
+    .option('--recycle-after <number>', 'Auto-recycle browser context and trigger GC after N operations (0 disables)')
     .option('--max-sessions <number>', 'Maximum concurrent WebDriver sessions', '16')
     .option('--session-idle-timeout <sec>', 'WebDriver: close sessions idle for this many seconds (default: 300, 0 disables)')
     .option('--no-stealth', 'Disable anti-bot stealth emulation'));
@@ -353,6 +419,41 @@ addFirewallOptions(addServerOptions(program
   .command('serve')
   .description('Start the automation server (same as running without a command)')))
   .action(runServer);
+
+// CDP command: `orbis cdp --port 9222 ...`
+const cdpCmd = program
+  .command('cdp')
+  .description('Start the Chrome DevTools Protocol (CDP) server for Playwright, Puppeteer & Agents');
+
+addFirewallOptions(addServerOptions(cdpCmd))
+  .action(async (opts) => {
+    opts.protocol = 'cdp';
+    await runServer(opts);
+  });
+
+// WebDriver command: `orbis webdriver --port 9222 ...`
+const webdriverCmd = program
+  .command('webdriver')
+  .description('Start the W3C WebDriver server for Selenium, Appium & WebdriverIO');
+
+addFirewallOptions(addServerOptions(webdriverCmd))
+  .action(async (opts) => {
+    opts.protocol = 'webdriver';
+    await runServer(opts);
+  });
+
+// MCP command: `orbis mcp`
+const mcpCmd = program
+  .command('mcp')
+  .description('Start the Model Context Protocol (MCP) server over stdio for AI assistants')
+  .option('--engine <engine>', 'Engine backend: native (ultra-fast), chrome, or auto', 'auto')
+  .option('--handoff-timeout <sec>', 'Seconds for human handoff challenge resolution', '300');
+
+addFirewallOptions(addNetworkOptions(mcpCmd))
+  .action(async (opts) => {
+    opts.mcp = true;
+    await runServer(opts);
+  });
 
 // Firewall tools: `orbis firewall scan <url>`, `orbis firewall verify <audit.jsonl>`, `orbis firewall policy`
 const firewallCmd = program
@@ -436,76 +537,193 @@ addFirewallOptions(firewallCmd
     }
   });
 
-// Fetch CLI command: `orbis fetch <url> --dump markdown`
-addNetworkOptions(program
-  .command('fetch <url>')
-  .description('Fetch and dump webpage in LLM-ready formats (markdown, action_map, structured_data)')
-  .option('-d, --dump <format>', 'Dump format: markdown, html, structured_data, semantic_tree, action_map', 'markdown')
-  .option('--dump-selector <selector>', 'Restrict output to elements matching CSS selector')
-  .option('--dump-max-bytes <bytes>', 'Limit output byte length')
-  .option('--wait-ms <ms>', 'Wait milliseconds after loading')
-  .option('--no-stealth', 'Disable anti-bot stealth emulation'))
-  .action(async (url: string, opts: any) => {
-    const stealth = opts.stealth !== false;
-    let network: NetworkOptions;
-    try {
-      network = parseNetworkOptions(opts);
-    } catch (e: any) {
-      fail(e.message);
+function normalizeUrl(rawUrl: string, baseUrl: string): string | null {
+  try {
+    const u = new URL(rawUrl, baseUrl);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+    u.hash = '';
+    let href = u.href;
+    if (href.endsWith('/') && u.pathname !== '/') {
+      href = href.slice(0, -1);
     }
-    const browser = new OrbisBrowser({ stealth, network });
-    const page = browser.newPage();
-    try {
-      await page.goto(url);
-      const challenge = page.challenge();
-      if (challenge?.blocking) process.stderr.write(formatChallenge(challenge, page.lastChallengeCooldownSec) + '\n');
-      if (opts.waitMs) {
-        await new Promise(r => setTimeout(r, parseInt(opts.waitMs, 10)));
+    if (/\.(pdf|zip|tar|gz|exe|dmg|pkg|png|jpe?g|gif|webp|svg|ico|mp4|webm|mp3|wav|woff2?|ttf|eot|css|js)$/i.test(u.pathname)) {
+      return null;
+    }
+    return href;
+  } catch {
+    return null;
+  }
+}
+
+async function runFetchCommand(url: string, opts: any): Promise<void> {
+  const stealth = opts.stealth !== false;
+  let network: NetworkOptions;
+  try {
+    network = parseNetworkOptions(opts);
+  } catch (e: any) {
+    fail(e.message);
+  }
+  const browser = new OrbisBrowser({
+    stealth,
+    network,
+    engine: opts.engine || (opts.eco ? 'native' : 'auto')
+  });
+  const page = browser.newPage();
+
+  const isAllPages = Boolean(opts.allPages || opts.allPage || opts.crawl);
+  const maxPages = parseInt(opts.maxPages || '10', 10);
+
+  // Format resolution: CLI flags take precedence over --dump
+  let format = (opts.dump || '').toLowerCase();
+  if (opts.markdown || opts.md) {
+    format = 'markdown';
+  } else if (opts.links) {
+    format = 'links';
+  } else if (opts.html) {
+    format = 'html';
+  } else if (opts.seo || opts.schema) {
+    format = 'seo';
+  } else if (opts.json) {
+    format = 'json';
+  }
+  if (!format) {
+    format = 'content';
+  }
+
+  try {
+    if (isAllPages) {
+      let baseOrigin = '';
+      try {
+        baseOrigin = new URL(url).origin;
+      } catch {}
+
+      const seed = normalizeUrl(url, url) || url;
+      const queue: string[] = [seed];
+      const visited = new Set<string>();
+      const pagesData: any[] = [];
+      const allInternalLinks = new Map<string, string>();
+      const allExternalLinks = new Map<string, string>();
+
+      while (queue.length > 0 && visited.size < maxPages) {
+        const currentUrl = queue.shift()!;
+        if (visited.has(currentUrl)) continue;
+        visited.add(currentUrl);
+
+        process.stderr.write(`[Orbis Crawl] [${visited.size}/${maxPages}] Scraping: ${currentUrl} ...\n`);
+
+        try {
+          await page.goto(currentUrl);
+          if (opts.waitMs) {
+            await new Promise(r => setTimeout(r, parseInt(opts.waitMs, 10)));
+          }
+
+          const linksGraph = (page as any).getLinks ? (page as any).getLinks() : { internal: [], external: [] };
+
+          for (const l of linksGraph.internal) {
+            if (!allInternalLinks.has(l.url)) allInternalLinks.set(l.url, l.text);
+            const norm = normalizeUrl(l.url, currentUrl);
+            if (norm && baseOrigin && norm.startsWith(baseOrigin) && !visited.has(norm) && !queue.includes(norm)) {
+              queue.push(norm);
+            }
+          }
+          for (const l of linksGraph.external) {
+            if (!allExternalLinks.has(l.url)) allExternalLinks.set(l.url, l.text);
+          }
+
+          const pageTitle = page.title() || (page.document?.title || '').trim() || currentUrl;
+
+          switch (format) {
+            case 'markdown':
+            case 'md': {
+              const md = page.getMarkdown({ readerMode: opts.readerMode !== false, includeLinks: false });
+              pagesData.push({
+                url: currentUrl,
+                title: pageTitle,
+                markdown: md
+              });
+              break;
+            }
+            case 'links':
+            case 'link_graph': {
+              pagesData.push(linksGraph);
+              break;
+            }
+            case 'html': {
+              pagesData.push({
+                url: currentUrl,
+                title: pageTitle,
+                html: page.content()
+              });
+              break;
+            }
+            case 'seo':
+            case 'schema':
+            case 'metadata': {
+              pagesData.push(page.getStructuredData());
+              break;
+            }
+            case 'json':
+            case 'content':
+            case 'scrape':
+            case 'structured_data':
+            default: {
+              const sc = (page as any).getScrapedContent ? (page as any).getScrapedContent() : { title: pageTitle, url: currentUrl };
+              pagesData.push(sc);
+              break;
+            }
+          }
+        } catch (err: any) {
+          process.stderr.write(`[Orbis Crawl] Error fetching ${currentUrl}: ${err.message || err}\n`);
+        }
       }
 
       let output = '';
-      const dumpFormat = (opts.dump || 'markdown').toLowerCase();
-
-      switch (dumpFormat) {
-        case 'markdown':
-        case 'md': {
-          output = page.getMarkdown();
-          break;
-        }
-        case 'html': {
-          output = page.content();
-          break;
-        }
-        case 'structured_data':
-        case 'metadata': {
-          const sd = page.getStructuredData();
-          output = JSON.stringify(sd, null, 2);
-          break;
-        }
-        case 'semantic_tree':
-        case 'action_map': {
-          const snap = page.getSemanticSnapshot();
-          output = [
-            `# Title: ${snap.title}`,
-            `URL: ${snap.url}`,
-            `Tokens: ~${snap.tokenEstimate} | Actions: ${snap.interactiveCount}`,
+      if (format === 'markdown' || format === 'md') {
+        const markdownPages = pagesData.map((p, idx) => {
+          return [
+            `## [${idx + 1}/${pagesData.length}] ${p.title}`,
+            `* **URL**: [${p.url}](${p.url})`,
             '',
-            snap.actionMapText
+            p.markdown,
+            '',
+            '---'
           ].join('\n');
-          break;
-        }
-        default: {
-          output = page.getMarkdown();
-        }
-      }
+        }).join('\n\n');
 
-      if (opts.dumpSelector) {
-        const el = page.querySelector(opts.dumpSelector);
-        if (el) {
-          output = dumpFormat === 'html' ? el.outerHTML : el.textContent.trim();
-        } else {
-          output = `[Selector "${opts.dumpSelector}" not found]`;
-        }
+        output = [
+          `# 🌐 Site Crawl Report`,
+          `* **Seed URL**: ${url}`,
+          `* **Origin**: ${baseOrigin}`,
+          `* **Total Pages Scraped**: ${pagesData.length}`,
+          `* **Discovered Internal Links**: ${allInternalLinks.size}`,
+          `* **Discovered External Links**: ${allExternalLinks.size}`,
+          '',
+          '---',
+          '',
+          markdownPages
+        ].join('\n');
+      } else if (format === 'links' || format === 'link_graph') {
+        output = JSON.stringify({
+          seedUrl: url,
+          origin: baseOrigin,
+          totalPagesCrawled: pagesData.length,
+          aggregatedSummary: {
+            totalInternalUnique: allInternalLinks.size,
+            totalExternalUnique: allExternalLinks.size,
+            internalLinks: Array.from(allInternalLinks.entries()).map(([u, text]) => ({ text, url: u })),
+            externalLinks: Array.from(allExternalLinks.entries()).map(([u, text]) => ({ text, url: u }))
+          },
+          pageDetails: pagesData
+        }, null, 2);
+      } else {
+        output = JSON.stringify({
+          seedUrl: url,
+          origin: baseOrigin,
+          totalPagesCrawled: pagesData.length,
+          discoveredInternalCount: allInternalLinks.size,
+          discoveredExternalCount: allExternalLinks.size,
+          pages: pagesData
+        }, null, 2);
       }
 
       if (opts.dumpMaxBytes) {
@@ -516,17 +734,222 @@ addNetworkOptions(program
       }
 
       process.stdout.write(output + '\n');
-      // The page is printed either way; an HTTP error status is still a failure for scripts and CI
-      if (page.lastStatus >= 400) {
-        process.stderr.write(`HTTP ${page.lastStatus} from ${page.url}\n`);
-        process.exitCode = 1;
+      return;
+    }
+
+    // Single-page execution
+    await page.goto(url);
+    const challenge = page.challenge();
+    if (challenge?.blocking) process.stderr.write(formatChallenge(challenge, page.lastChallengeCooldownSec) + '\n');
+    if (opts.waitMs) {
+      await new Promise(r => setTimeout(r, parseInt(opts.waitMs, 10)));
+    }
+
+    let output = '';
+
+    switch (format) {
+      case 'markdown':
+      case 'md': {
+        output = page.getMarkdown({ readerMode: opts.readerMode, includeLinks: opts.includeLinks });
+        break;
       }
-    } catch (err: any) {
-      console.error(`Fetch error: ${err.message || err}`);
-      process.exit(1);
-    } finally {
-      browser.close();
-      process.exit(process.exitCode ?? 0);
+      case 'html': {
+        output = page.content();
+        break;
+      }
+      case 'links':
+      case 'link_graph': {
+        const links = (page as any).getLinks ? (page as any).getLinks() : { internal: [], external: [] };
+        if (opts.internalOnly) {
+          output = JSON.stringify({ url: links.url, count: links.internalCount, internal: links.internal }, null, 2);
+        } else if (opts.externalOnly) {
+          output = JSON.stringify({ url: links.url, count: links.externalCount, external: links.external }, null, 2);
+        } else {
+          output = JSON.stringify(links, null, 2);
+        }
+        break;
+      }
+      case 'seo':
+      case 'schema':
+      case 'metadata': {
+        const sd = page.getStructuredData();
+        output = JSON.stringify(sd, null, 2);
+        break;
+      }
+      case 'semantic_tree':
+      case 'action_map': {
+        const snap = page.getSemanticSnapshot();
+        output = [
+          `# Title: ${snap.title}`,
+          `URL: ${snap.url}`,
+          `Tokens: ~${snap.tokenEstimate} | Actions: ${snap.interactiveCount}`,
+          '',
+          snap.actionMapText
+        ].join('\n');
+        break;
+      }
+      case 'json':
+      case 'content':
+      case 'scrape':
+      case 'structured_data':
+      default: {
+        const sc = (page as any).getScrapedContent ? (page as any).getScrapedContent() : { title: page.title(), url: page.url };
+        output = JSON.stringify(sc, null, 2);
+        break;
+      }
+    }
+
+    if (opts.dumpSelector) {
+      const el = page.querySelector(opts.dumpSelector);
+      if (el) {
+        output = format === 'html' ? el.outerHTML : el.textContent.trim();
+      } else {
+        output = `[Selector "${opts.dumpSelector}" not found]`;
+      }
+    }
+
+    if (opts.dumpMaxBytes) {
+      const max = parseInt(opts.dumpMaxBytes, 10);
+      if (output.length > max) {
+        output = output.slice(0, max) + '\n... [truncated by --dump-max-bytes]';
+      }
+    }
+
+    process.stdout.write(output + '\n');
+    if (page.lastStatus >= 400) {
+      process.stderr.write(`HTTP ${page.lastStatus} from ${page.url}\n`);
+      process.exitCode = 1;
+    }
+  } catch (err: any) {
+    console.error(`Error: ${err.message || err}`);
+    process.exit(1);
+  } finally {
+    browser.close();
+    process.exit(process.exitCode ?? 0);
+  }
+}
+
+// 1. Fetch CLI command: `orbis fetch <url>`
+addNetworkOptions(program
+  .command('fetch <url>')
+  .description('Fetch and dump webpage in LLM-ready formats (markdown, json, links, semantic_tree)')
+  .option('-m, --markdown', 'Output clean reader markdown')
+  .option('--md', 'Alias for --markdown')
+  .option('-j, --json', 'Output structured JSON')
+  .option('-l, --links', 'Output internal/external link graph')
+  .option('--html', 'Output raw HTML content')
+  .option('--seo', 'Output SEO and OpenGraph metadata')
+  .option('-a, --all-pages', 'Crawl all internal pages on the same domain')
+  .option('--all-page', 'Alias for --all-pages')
+  .option('--crawl', 'Alias for --all-pages')
+  .option('--max-pages <number>', 'Maximum pages to crawl with --all-pages (default: 10)', '10')
+  .option('-d, --dump <format>', 'Dump format: markdown, json, links, html, seo, semantic_tree, action_map')
+  .option('--dump-selector <selector>', 'Restrict output to elements matching CSS selector')
+  .option('--dump-max-bytes <bytes>', 'Limit output byte length')
+  .option('--wait-ms <ms>', 'Wait milliseconds after loading')
+  .option('--no-stealth', 'Disable anti-bot stealth emulation'))
+  .action(async (url: string, opts: any) => runFetchCommand(url, opts));
+
+// 2. Read CLI command: `orbis read <url>` -> Direct Markdown dump with interlinked subpages
+addNetworkOptions(program
+  .command('read <url>')
+  .description('Read webpage and output clean Markdown directly (with interlinked pages appendix)')
+  .option('-a, --all-pages', 'Crawl and read all internal pages on the same domain')
+  .option('--all-page', 'Alias for --all-pages')
+  .option('--crawl', 'Alias for --all-pages')
+  .option('--max-pages <number>', 'Maximum pages to crawl with --all-pages (default: 10)', '10')
+  .option('--dump-selector <selector>', 'Restrict output to elements matching CSS selector')
+  .option('--dump-max-bytes <bytes>', 'Limit output byte length')
+  .option('--no-links', 'Omit interlinked pages section at the bottom')
+  .option('--wait-ms <ms>', 'Wait milliseconds after loading')
+  .option('--no-stealth', 'Disable anti-bot stealth emulation'))
+  .action(async (url: string, opts: any) => runFetchCommand(url, { ...opts, markdown: true, readerMode: true, includeLinks: opts.links !== false, eco: true }));
+
+// 3. Links CLI command: `orbis links <url>` -> Interlinked URL graph
+addNetworkOptions(program
+  .command('links <url>')
+  .description('Extract all interlinked internal and external URLs with anchor texts')
+  .option('-a, --all-pages', 'Crawl and aggregate links across all internal pages on the domain')
+  .option('--all-page', 'Alias for --all-pages')
+  .option('--crawl', 'Alias for --all-pages')
+  .option('--max-pages <number>', 'Maximum pages to crawl with --all-pages (default: 10)', '10')
+  .option('--internal-only', 'Show only internal links within the same origin')
+  .option('--external-only', 'Show only external links')
+  .option('--dump-max-bytes <bytes>', 'Limit output byte length')
+  .option('--wait-ms <ms>', 'Wait milliseconds after loading')
+  .option('--no-stealth', 'Disable anti-bot stealth emulation'))
+  .action(async (url: string, opts: any) => runFetchCommand(url, { ...opts, links: true, eco: true }));
+
+// 4. Scrape CLI command: `orbis scrape <url>` -> Content, Markdown, JSON, or Site Crawl
+addNetworkOptions(program
+  .command('scrape <url>')
+  .description('Scrape content, links, markdown, or entire site from a webpage')
+  .option('-m, --markdown', 'Output clean reader-friendly markdown')
+  .option('--md', 'Alias for --markdown')
+  .option('-j, --json', 'Output structured JSON (title, headings, sections, summary, links)')
+  .option('-l, --links', 'Output internal and external link graph')
+  .option('--html', 'Output raw HTML content')
+  .option('--seo', 'Output SEO meta tags, OpenGraph, and JSON-LD structured data')
+  .option('--schema', 'Alias for --seo')
+  .option('-a, --all-pages', 'Crawl and scrape all internal pages on the same domain')
+  .option('--all-page', 'Alias for --all-pages')
+  .option('--crawl', 'Alias for --all-pages')
+  .option('--max-pages <number>', 'Maximum number of pages to crawl with --all-pages (default: 10)', '10')
+  .option('-d, --dump <format>', 'Dump format: markdown, json, links, html, seo, semantic_tree')
+  .option('--dump-selector <selector>', 'Restrict output to elements matching CSS selector')
+  .option('--dump-max-bytes <bytes>', 'Limit output byte length')
+  .option('--wait-ms <ms>', 'Wait milliseconds after loading')
+  .option('--no-stealth', 'Disable anti-bot stealth emulation'))
+  .action(async (url: string, opts: any) => runFetchCommand(url, { ...opts, eco: true }));
+
+// 5. Browse CLI command: `orbis browse <url>` -> Action Map & Semantic Tree
+addNetworkOptions(program
+  .command('browse <url>')
+  .description('Browse webpage and output LLM action map & markdown')
+  .option('--dump-selector <selector>', 'Restrict output to elements matching CSS selector')
+  .option('--dump-max-bytes <bytes>', 'Limit output byte length')
+  .option('--wait-ms <ms>', 'Wait milliseconds after loading')
+  .option('--no-stealth', 'Disable anti-bot stealth emulation'))
+  .action(async (url: string, opts: any) => runFetchCommand(url, { ...opts, dump: 'semantic_tree' }));
+
+// 5. Start / Run server aliases
+addFirewallOptions(addServerOptions(program
+  .command('start')
+  .description('Start the automation server (alias for serve)')))
+  .action(runServer);
+
+addFirewallOptions(addServerOptions(program
+  .command('run')
+  .description('Start the automation server (alias for serve)')))
+  .action(runServer);
+
+// 6. Config command: `orbis config [action] [key] [val]`
+program
+  .command('config [action] [key] [val]')
+  .description('Get or set persistent Orbis user defaults (e.g. `orbis config set preset eco`)')
+  .action((action?: string, key?: string, val?: string) => {
+    const homedir = os.homedir();
+    const dir = path.join(homedir, '.orbis');
+    const cfgPath = path.join(dir, 'config.json');
+    let cfg: Record<string, any> = {};
+    try {
+      if (fs.existsSync(cfgPath)) cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+    } catch {}
+
+    if (!action || action === 'list') {
+      console.log(JSON.stringify(cfg, null, 2));
+      process.exit(0);
+    }
+    if (action === 'set' && key && val !== undefined) {
+      fs.mkdirSync(dir, { recursive: true });
+      cfg[key] = val === 'true' ? true : val === 'false' ? false : val;
+      fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2), 'utf8');
+      console.log(`✓ Set ${key} = ${val} in ~/.orbis/config.json`);
+      process.exit(0);
+    }
+    if (action === 'get' && key) {
+      console.log(cfg[key] !== undefined ? cfg[key] : '(not set)');
+      process.exit(0);
     }
   });
 

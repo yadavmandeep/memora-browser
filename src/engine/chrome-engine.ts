@@ -57,6 +57,8 @@ export class ChromeEngine {
   private domains: DomainGuard | null;
   private robots: RobotsStore | null = null;
   private firewallBlock: DomainDecision | null = null;
+  private opCount: number = 0;
+  private recycleAfter: number = 0;
 
   constructor(network: NetworkOptions = {}, options: { headless?: boolean } = {}) {
     this.headless = options.headless ?? true;
@@ -68,6 +70,7 @@ export class ChromeEngine {
     }
     this.chromePath = found;
     this.network = network;
+    this.recycleAfter = (network as any).recycleAfter ?? 0;
     if (network.proxyBearerToken) {
       // Chrome cannot attach Proxy-Authorization to CONNECT tunnels; only basic auth works here
       process.stderr.write('[Memora] --proxy-bearer-token is ignored by the Chrome engine; put user:pass in the proxy URL instead\n');
@@ -83,7 +86,28 @@ export class ChromeEngine {
           '--disable-blink-features=AutomationControlled',
           '--no-sandbox',
           '--disable-dev-shm-usage',
-          '--disable-infobars'
+          '--disable-infobars',
+          ...(this.network.lowMemory ? [
+            '--disable-gpu',
+            '--disable-software-rasterizer',
+            '--renderer-process-limit=2',
+            '--disable-extensions',
+            '--disable-component-extensions-with-background-pages',
+            '--disable-default-apps',
+            '--disable-background-networking',
+            '--disable-sync',
+            '--disable-translate',
+            '--disable-speech-api',
+            '--disable-features=AudioServiceOutOfProcess,IsolateOrigins,site-per-process,Translate,BackForwardCache',
+            '--js-flags=--max-old-space-size=128 --optimize_for_size',
+            '--force-color-profile=srgb',
+            '--metrics-recording-only',
+            '--mute-audio',
+            '--no-first-run',
+            '--disable-background-timer-throttling',
+            '--disable-backgrounding-occluded-windows',
+            '--disable-renderer-backgrounding'
+          ] : [])
         ],
         proxy: toPlaywrightProxy(this.network),
       });
@@ -102,7 +126,14 @@ export class ChromeEngine {
       this.robots = this.network.obeyRobots
         ? new RobotsStore({ agent: this.network.robotsAgent, userAgent: this.network.userAgent })
         : null;
-      if (this.robots || this.domains) {
+      const needsInterception = !!(
+        this.robots ||
+        this.domains ||
+        this.network.blockMedia ||
+        this.network.blockImages ||
+        this.network.stripMode
+      );
+      if (needsInterception) {
         // Popups opened by the page get the same checks
         this.context.on('page', (p) => {
           if (p !== this.page) this.interceptRequests(p).catch(() => {});
@@ -110,7 +141,7 @@ export class ChromeEngine {
       }
 
       this.page = await this.context.newPage();
-      if (this.robots || this.domains) await this.interceptRequests(this.page);
+      if (needsInterception) await this.interceptRequests(this.page);
 
       this.page.on('console', (msg) => {
         this.logs.push({
@@ -199,6 +230,10 @@ export class ChromeEngine {
   }
 
   public async goto(url: string, timeoutMs: number = 20000): Promise<{ status: number; url: string }> {
+    this.opCount++;
+    if (this.recycleAfter > 0 && this.opCount >= this.recycleAfter) {
+      await this.recycle();
+    }
     const page = await this.ensurePage();
     this.domains?.assertAllowed(url, { navigation: true });
     this.cooldown.assertClear(url);
@@ -247,11 +282,25 @@ export class ChromeEngine {
     await cdp.send('Fetch.enable', { patterns: [{ urlPattern: '*', requestStage: 'Request' }] });
     cdp.on('Fetch.requestPaused', async (e: any) => {
       const url: string = e.request.url;
+      const resType = e.resourceType;
       const block = (why: string) => {
         this.logs.push({ type: 'warning', text: `[Memora] blocked by ${why}: ${url}`, timestamp: Date.now() });
         return cdp.send('Fetch.failRequest', { requestId: e.requestId, errorReason: 'BlockedByClient' }).catch(() => {});
       };
       try {
+        // Level 3: Block Media, Audio, Video, Web Fonts
+        if (this.network.blockMedia && (resType === 'Media' || resType === 'Font')) {
+          return await block('media/font blocker (--block-media)');
+        }
+        // Level 3: Block Images
+        if ((this.network.blockImages || this.network.blockMedia) && resType === 'Image') {
+          return await block('image blocker (--block-images/--block-media)');
+        }
+        // Level 3: Strip-mode invisible (blocks stylesheets and media)
+        if (this.network.stripMode === 'invisible' && (resType === 'Stylesheet' || resType === 'Image' || resType === 'Font' || resType === 'Media')) {
+          return await block('strip-mode invisible');
+        }
+
         if (domains) {
           const d = domains.check(url, { navigation: e.resourceType === 'Document' && e.frameId === mainFrameId });
           if (!d.allowed) {
@@ -737,12 +786,44 @@ export class ChromeEngine {
     }
   }
 
+  public async collectGarbage(): Promise<void> {
+    if (this.page) {
+      try {
+        const cdp = await this.page.context().newCDPSession(this.page);
+        await cdp.send('HeapProfiler.collectGarbage').catch(() => {});
+        await cdp.detach().catch(() => {});
+      } catch {}
+    }
+    if (typeof (global as any).gc === 'function') {
+      try { (global as any).gc(); } catch {}
+    }
+  }
+
+  public async recycle(): Promise<void> {
+    if (this.browser) {
+      try {
+        if (this.context) {
+          await this.context.close().catch(() => {});
+          this.context = null;
+          this.page = null;
+        }
+        this.opCount = 0;
+        await this.collectGarbage();
+        await this.ensurePage();
+      } catch {
+        await this.close();
+        await this.ensurePage();
+      }
+    }
+  }
+
   public async close(): Promise<void> {
     if (this.browser) {
-      await this.browser.close();
+      await this.browser.close().catch(() => {});
       this.browser = null;
       this.context = null;
       this.page = null;
     }
+    await this.collectGarbage();
   }
 }

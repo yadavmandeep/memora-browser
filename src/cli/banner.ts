@@ -77,9 +77,9 @@ export function renderOrbisBanner(
     body = [
       `  ${cyan}▶${reset} ${dim}Core Engine:${reset}        Memora Browser Engine (MBE)`,
       `  ${cyan}▶${reset} ${dim}Website & Docs:${reset}     https://orbis.memora.company`,
-      `  ${cyan}▶${reset} ${dim}CDP WebSocket:${reset}      ws://${details.host || 'localhost'}:${details.port || 9222}/devtools/browser/memora-root`,
-      `  ${cyan}▶${reset} ${dim}Discovery Endpoint:${reset} http://${details.host || 'localhost'}:${details.port || 9222}/json/version`,
-      `  ${cyan}▶${reset} ${dim}Agent Snapshot:${reset}     http://${details.host || 'localhost'}:${details.port || 9222}/orbis/snapshot (or /memora/snapshot)`,
+      `  ${cyan}▶${reset} ${dim}CDP Transport:${reset}      ${String(details.port || '').startsWith('unix:') ? details.port : `ws://${details.host || 'localhost'}:${details.port || 9222}/devtools/browser/memora-root`}`,
+      `  ${cyan}▶${reset} ${dim}Discovery Endpoint:${reset} ${String(details.port || '').startsWith('unix:') ? details.port : `http://${details.host || 'localhost'}:${details.port || 9222}/json/version`}`,
+      `  ${cyan}▶${reset} ${dim}Agent Snapshot:${reset}     ${String(details.port || '').startsWith('unix:') ? `${details.port}/orbis/snapshot` : `http://${details.host || 'localhost'}:${details.port || 9222}/orbis/snapshot`} (or /memora/snapshot)`,
       `  ${cyan}▶${reset} ${dim}Memory Footprint:${reset}   ~${details.memUsage || '83.4'} MB (Chromium uses ~350MB+)`,
       `  ${cyan}▶${reset} ${dim}Proxy:${reset}              ${details.proxy || 'None (Direct Connection)'}`,
       `  ${cyan}▶${reset} ${dim}Stealth Mode:${reset}       ${details.stealth ? `${green}🛡️  ACTIVE (Anti-Detect On)${reset}` : 'OFF'}`,

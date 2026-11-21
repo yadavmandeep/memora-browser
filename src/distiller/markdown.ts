@@ -5,6 +5,9 @@ export interface MarkdownOptions {
   focusSelector?: string;
   excludeSelectors?: string[];
   filterHidden?: boolean;
+  readerMode?: boolean;
+  includeLinks?: boolean;
+  baseUrl?: string;
 }
 
 const NON_RENDERABLE_TAGS = new Set([
@@ -92,8 +95,22 @@ export function renderInline(node: MemoraNode, options?: MarkdownOptions): strin
   return '';
 }
 
+const READER_EXCLUDES = [
+  'nav', 'header', 'footer',
+  '[role="navigation"]', '[role="banner"]', '[role="contentinfo"]',
+  '.nav', '.navbar', '.header', '.footer', '.menu', '.sidebar',
+  '.cookie-banner', '.cookie-notice', '#cookie', '#consent',
+  '.advertisement', '.ad-container', '.promo-bar'
+];
+
 export function convertToMarkdown(doc: MemoraDocument, options: MarkdownOptions = {}): string {
   let rootNode: MemoraNode = doc.body || doc;
+
+  const effectiveExcludes = [
+    ...(options.excludeSelectors || []),
+    ...(options.readerMode ? READER_EXCLUDES : [])
+  ];
+  options = { ...options, excludeSelectors: effectiveExcludes };
 
   if (options.focusSelector) {
     try {
@@ -104,6 +121,13 @@ export function convertToMarkdown(doc: MemoraDocument, options: MarkdownOptions 
     } catch {
       // Fall back to default root if focusSelector is invalid
     }
+  } else if (options.readerMode) {
+    try {
+      const main = doc.querySelector('main, article, [role="main"], #content, #main, .content, .main');
+      if (main) {
+        rootNode = main;
+      }
+    } catch {}
   }
 
   const lines: string[] = [];
@@ -201,11 +225,54 @@ export function convertToMarkdown(doc: MemoraDocument, options: MarkdownOptions 
   processBlockNode(rootNode);
 
   // Normalize blank lines and spacing
-  return lines
+  let result = lines
     .join(' ')
     .replace(/[ \t]+/g, ' ')
     .replace(/\n\s*\n/g, '\n\n')
     .trim();
+
+  if (options.includeLinks) {
+    const anchors = doc.querySelectorAll('a[href]');
+    const seen = new Set<string>();
+    const internalList: string[] = [];
+    const externalList: string[] = [];
+
+    let baseOrigin = '';
+    try {
+      baseOrigin = new URL((options.baseUrl || "") || '').origin;
+    } catch {}
+
+    for (const a of anchors) {
+      const href = a.getAttribute('href');
+      if (!href || href.startsWith('#') || href.startsWith('javascript:') || href.startsWith('mailto:') || href.startsWith('tel:')) continue;
+      if (seen.has(href)) continue;
+      seen.add(href);
+
+      const text = (a.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!text || text.length > 80) continue;
+
+      let abs = href;
+      try {
+        if ((options.baseUrl || "")) abs = new URL(href, (options.baseUrl || "")).href;
+      } catch {}
+
+      const isInternal = baseOrigin && abs.startsWith(baseOrigin);
+      if (isInternal) {
+        internalList.push(`- [${text}](${abs})`);
+      } else if (abs.startsWith('http')) {
+        externalList.push(`- [${text}](${abs})`);
+      }
+    }
+
+    if (internalList.length > 0) {
+      result += '\n\n---\n\n### 🔗 Interlinked Pages (' + internalList.length + ')\n\n' + internalList.slice(0, 30).join('\n');
+    }
+    if (externalList.length > 0) {
+      result += '\n\n### 🌐 External References (' + externalList.length + ')\n\n' + externalList.slice(0, 15).join('\n');
+    }
+  }
+
+  return result;
 }
 
 function renderMarkdownTable(table: MemoraElement, options?: MarkdownOptions): string {

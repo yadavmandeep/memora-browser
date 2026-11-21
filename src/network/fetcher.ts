@@ -153,6 +153,19 @@ export class NetworkFetcher {
         // --obey-robots: every hop, redirect targets included, is checked against its origin's robots.txt
         await this.pool.robots?.check(currentUrl);
         this.pool.cooldown.assertClear(currentUrl);
+        if (opts.resource) {
+          const isMedia = /\.(mp4|webm|ogg|mp3|wav|flac|aac|woff|woff2|ttf|eot|otf)(\?.*)?$/i.test(currentUrl);
+          const isImage = /\.(png|jpe?g|gif|webp|svg|ico|bmp|avif)(\?.*)?$/i.test(currentUrl);
+          if (this.options.blockMedia && isMedia) {
+            return { url: currentUrl, status: 204, statusText: 'No Content', headers: {}, body: '', contentType: 'text/plain' };
+          }
+          if ((this.options.blockImages || this.options.blockMedia) && isImage) {
+            return { url: currentUrl, status: 204, statusText: 'No Content', headers: {}, body: '', contentType: 'image/gif' };
+          }
+          if (this.options.stripMode === 'invisible' && (/\.(css)(\?.*)?$/i.test(currentUrl) || isImage || isMedia)) {
+            return { url: currentUrl, status: 204, statusText: 'No Content', headers: {}, body: '', contentType: 'text/plain' };
+          }
+        }
         const headers = this.baseHeaders(!opts.resource, currentUrl);
         Object.assign(headers, opts.headers || {});
         if (body === undefined) delete headers['Content-Type'];

@@ -171,6 +171,11 @@ export interface NetworkOptions {
   domainPolicy?: DomainPolicy;
   // Chrome engine: let pages download files (default true, Playwright's default). The firewall sets false.
   acceptDownloads?: boolean;
+  // Memory optimization (Level 2 & Level 3)
+  lowMemory?: boolean;
+  blockMedia?: boolean;
+  blockImages?: boolean;
+  stripMode?: 'none' | 'invisible' | 'all';
 }
 
 export interface BrowserOptions {
@@ -183,4 +188,12 @@ export interface BrowserOptions {
   network?: NetworkOptions;
   engine?: 'native' | 'chrome' | 'auto';
   apiKey?: string;
+  unixSocket?: string;
+  lowMemory?: boolean;
+  blockMedia?: boolean;
+  blockImages?: boolean;
+  stripMode?: 'none' | 'invisible' | 'all';
+  maxPages?: number;
+  recycleAfter?: number;
+  idleTimeoutSec?: number;
 }

@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import http from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { MemoraBrowser } from '../engine/browser.js';
@@ -65,12 +68,14 @@ export class CDPServer {
   private port: number;
   private host: string;
   public readonly apiKey?: string;
+  public readonly unixSocket?: string;
 
   constructor(browser: MemoraBrowser) {
     this.browser = browser;
     this.port = browser.options.port || 9222;
     this.host = browser.options.host || 'localhost';
     this.apiKey = browser.options.apiKey || process.env.ORBIS_API_KEY || process.env.MEMORA_API_KEY;
+    this.unixSocket = browser.options.unixSocket;
     this.dispatcher = new CDPDispatcher(browser);
 
     this.httpServer = http.createServer((req, res) => {
@@ -463,6 +468,21 @@ export class CDPServer {
       return;
     }
 
+    // 11. Memory & Lifecycle Endpoints: /orbis/memory & /memora/memory
+    if (pathname === '/orbis/memory' || pathname === '/memora/memory') {
+      res.writeHead(200);
+      res.end(JSON.stringify(this.browser.getMemoryStats(), null, 2));
+      return;
+    }
+
+    // 12. Garbage Collection & Recyling: /orbis/gc, /memora/gc, /orbis/recycle
+    if (pathname === '/orbis/gc' || pathname === '/memora/gc' || pathname === '/orbis/recycle') {
+      this.browser.recycle();
+      res.writeHead(200);
+      res.end(JSON.stringify({ success: true, message: 'Browser memory recycled and garbage collection triggered', memory: this.browser.getMemoryStats() }, null, 2));
+      return;
+    }
+
     // Fallback 404
     res.writeHead(404);
     res.end(JSON.stringify({ error: 'Not found' }));
@@ -569,9 +589,28 @@ export class CDPServer {
   public async start(): Promise<void> {
     return new Promise((resolve, reject) => {
       this.httpServer.on('error', reject);
-      this.httpServer.listen(this.port, bindAddress(this.host), () => {
-        resolve();
-      });
+      if (this.unixSocket) {
+        let sockPath = this.unixSocket;
+        if (process.platform === 'win32' && !sockPath.startsWith('\\\\.\\pipe\\') && !sockPath.startsWith('\\\\?\\pipe\\')) {
+          const pipeName = path.basename(sockPath).replace(/[^a-zA-Z0-9_.-]/g, '_');
+          sockPath = `\\\\.\\pipe\\${pipeName}`;
+          process.stderr.write(`[Orbis] Windows IPC: mapped socket "${this.unixSocket}" to Named Pipe "${sockPath}"\n`);
+        } else if (process.platform !== 'win32') {
+          try {
+            fs.mkdirSync(path.dirname(sockPath), { recursive: true });
+            if (fs.existsSync(sockPath)) {
+              fs.unlinkSync(sockPath);
+            }
+          } catch {}
+        }
+        this.httpServer.listen(sockPath, () => {
+          resolve();
+        });
+      } else {
+        this.httpServer.listen(this.port, bindAddress(this.host), () => {
+          resolve();
+        });
+      }
     });
   }
 
@@ -583,6 +622,11 @@ export class CDPServer {
     return new Promise((resolve) => {
       this.wss.close(() => {
         this.httpServer.close(() => {
+          if (this.unixSocket && process.platform !== 'win32') {
+            try {
+              if (fs.existsSync(this.unixSocket)) fs.unlinkSync(this.unixSocket);
+            } catch {}
+          }
           resolve();
         });
       });
