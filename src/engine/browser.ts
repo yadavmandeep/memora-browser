@@ -1,3 +1,4 @@
+import { SessionVault, SessionVaultConfig } from '../vault/index.js';
 import { MemoraPage, OrbisPage } from './page.js';
 import { BrowserOptions } from '../types/index.js';
 import { DispatcherPool } from '../network/proxy.js';
@@ -25,6 +26,7 @@ export class OrbisBrowser {
   public readonly recycleAfter: number = 0;
   private operationCount: number = 0;
   private lastActiveTimes: Map<string, number> = new Map();
+  private vault: SessionVault | null = null;
 
   constructor(options: BrowserOptions = {}) {
     this.options = {
@@ -226,6 +228,13 @@ export class OrbisBrowser {
   /**
    * Terminate all contexts, pages, background timers, and the HTTP dispatcher pool.
    */
+  public getVault(config?: SessionVaultConfig): SessionVault {
+    if (!this.vault) {
+      this.vault = new SessionVault(config);
+    }
+    return this.vault;
+  }
+
   public close(): void {
     for (const context of Array.from(this.contexts.values())) {
       context.close();

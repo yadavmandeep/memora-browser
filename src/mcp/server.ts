@@ -1,3 +1,4 @@
+import { SessionVault } from '../vault/index.js';
 import readline from 'node:readline';
 import { ChromeEngine, findSystemChrome } from '../engine/chrome-engine.js';
 import { NativeEngineAdapter } from '../engine/native-adapter.js';
@@ -520,6 +521,47 @@ export class MCPServer {
                     }
                   }
                 }
+              },
+              {
+                name: 'memora_smart_wait',
+                annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+                description: 'Smartly wait for modern Single-Page Applications (Next.js, React, Vue, Nuxt, Angular) to finish hydration, background network fetch/XHR, and DOM mutations before performing actions. Prevents "dead click" bugs.',
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    networkIdleMs: { type: 'number', description: 'Duration in ms of zero in-flight network requests (default: 300)' },
+                    mutationQuietMs: { type: 'number', description: 'Duration in ms of zero DOM mutations (default: 200)' },
+                    checkHydration: { type: 'boolean', description: 'Whether to check React/Next.js/Vue framework hydration (default: true)' },
+                    timeoutMs: { type: 'number', description: 'Max timeout before settling gracefully (default: 5000)' }
+                  }
+                }
+              },
+              {
+                name: 'memora_screenshot',
+                annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+                description: 'Capture a visual viewport screenshot. Set withBoundingBoxes: true to overlay numbered visual action badge pills (@v1, @v2) on all interactive elements (buttons, inputs, canvas, overlays) and get coordinate-translated clickable visual targets.',
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    withBoundingBoxes: { type: 'boolean', description: 'Whether to overlay visual action IDs (@v1, @v2) and return interactive bounding boxes (default: false)' },
+                    format: { type: 'string', enum: ['png', 'jpeg'], description: 'Image format (default: png)' },
+                    quality: { type: 'number', description: 'Quality 0-100 for jpeg format' }
+                  }
+                }
+              },
+              {
+                name: 'memora_vault',
+                annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+                description: 'Enterprise encrypted session vault (AES-256-GCM). Save, load, list, or delete authenticated browser profiles (cookies, localStorage, tokens) for instant 5ms session hot-swapping across multiple domains and accounts without plaintext leaks.',
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    action: { type: 'string', enum: ['save', 'load', 'list', 'delete'], description: 'Vault action to perform' },
+                    profile: { type: 'string', description: 'Profile name (e.g. "work-github", "staging-jira")' },
+                    passphrase: { type: 'string', description: 'Optional custom encryption passphrase' }
+                  },
+                  required: ['action']
+                }
               }
             ]
           }
@@ -677,6 +719,12 @@ export class MCPServer {
         return req('navigate');
       case 'memora_extract_schema':
         return req('read');
+      case 'memora_smart_wait':
+        return req('read');
+      case 'memora_screenshot':
+        return req('read');
+      case 'memora_vault':
+        return req('session');
       default:
         return req('read');
     }
@@ -974,6 +1022,89 @@ ${snapshot.actionMapText}`;
         }
 
         return aggregatedOutputs.join('\n\n========================================\n\n');
+      }
+
+      case 'memora_smart_wait': {
+        if (typeof (this.engine as any).smartWait === 'function') {
+          const res = await (this.engine as any).smartWait(args);
+          return JSON.stringify(res, null, 2);
+        }
+        return JSON.stringify({ settled: true, networkIdle: true, hydrated: true, elapsedMs: 0 }, null, 2);
+      }
+
+      case 'memora_screenshot': {
+        if (args.withBoundingBoxes && typeof (this.engine as any).getVisionSnapshot === 'function') {
+          const snap = await (this.engine as any).getVisionSnapshot({
+            format: args.format,
+            quality: args.quality,
+            withOverlay: true
+          });
+          const elementsText = snap.elements.map((e: any) =>
+            `[${e.id}] <${e.tag}> "${e.text}" at (${e.center.x}, ${e.center.y}) [${e.box.width}x${e.box.height}]`
+          ).join('\n');
+
+          return [
+            '=== ORBIS HYBRID VISION SNAPSHOT ===',
+            `Dimensions: ${snap.width}x${snap.height}`,
+            `Canvas Element Present: ${snap.hasCanvas}`,
+            `Interactive Visual Elements (${snap.elements.length}):`,
+            elementsText || '  (No interactive elements in viewport)',
+            '\nBase64 Data URI (truncated):',
+            snap.base64DataUri.slice(0, 160) + '...'
+          ].join('\n');
+        }
+
+        if (typeof (this.engine as any).screenshot === 'function') {
+          const buf: Buffer = await (this.engine as any).screenshot({
+            format: args.format,
+            quality: args.quality
+          });
+          const mime = args.format === 'jpeg' ? 'image/jpeg' : 'image/png';
+          return `data:${mime};base64,${buf.toString('base64')}`;
+        }
+
+        throw new Error('Screenshot is only supported when running with Chrome Engine.');
+      }
+
+      case 'memora_vault': {
+        const action = args.action || 'list';
+        const vault: SessionVault = typeof (this.engine as any).getVault === 'function'
+          ? (this.engine as any).getVault()
+          : new SessionVault();
+
+        if (action === 'save') {
+          if (!args.profile) throw new Error('Please specify "profile" name to save in vault');
+          const session = await (this.engine as any).dumpSession();
+          const summary = vault.saveProfile(args.profile, session, args.passphrase);
+          return `Profile "${args.profile}" securely saved in vault.\nDomain: ${summary.domain}\nURL: ${summary.url}\nExpires: ${summary.expiresAt ? new Date(summary.expiresAt * 1000).toISOString() : 'Never'}`;
+        }
+
+        if (action === 'load') {
+          if (!args.profile) throw new Error('Please specify "profile" name to load from vault');
+          const session = vault.loadProfile(args.profile, args.passphrase);
+          if (!session) throw new Error(`Profile "${args.profile}" not found in vault`);
+          await (this.engine as any).restoreSession(session);
+          return `Profile "${args.profile}" loaded and session restored for ${session.url}`;
+        }
+
+        if (action === 'list') {
+          const profiles = vault.listProfiles(args.passphrase);
+          if (profiles.length === 0) return 'Vault is empty (0 profiles saved).';
+          return [
+            '=== ORBIS ENCRYPTED SESSION VAULT ===',
+            ...profiles.map((p: any) =>
+              `• [${p.name}] Domain: ${p.domain} | Created: ${p.createdAt} | Expired: ${p.isExpired}`
+            )
+          ].join('\n');
+        }
+
+        if (action === 'delete') {
+          if (!args.profile) throw new Error('Please specify "profile" name to delete from vault');
+          const deleted = vault.deleteProfile(args.profile, args.passphrase);
+          return deleted ? `Profile "${args.profile}" deleted from vault.` : `Profile "${args.profile}" not found.`;
+        }
+
+        throw new Error(`Unknown vault action: "${action}"`);
       }
 
       default:

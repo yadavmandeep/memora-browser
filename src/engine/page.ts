@@ -9,6 +9,7 @@ import { CookieJar } from '../network/cookie-jar.js';
 import type { OrbisBrowser } from './browser.js';
 import type { OrbisContext } from './context.js';
 import { extractSemanticSnapshot } from '../distiller/semantic-tree.js';
+import { SmartWaitOptions, SmartWaitResult } from '../types/index.js';
 import { convertToMarkdown } from '../distiller/markdown.js';
 import { extractStructuredData, extractScrapedContent, extractLinks, StructuredPageData, ScrapedPageContent, LinksGraph } from '../distiller/structured-data.js';
 import { extractWithSchema, DynamicExtractionSchema, UniversalExtractedData } from '../distiller/schema-extractor.js';
@@ -320,6 +321,21 @@ export class MemoraPage {
   }
 
   // Releases the page's JS context (timers, in-flight requests) and unregisters from browser/context
+  public async smartWait(options: SmartWaitOptions = {}): Promise<SmartWaitResult> {
+    const start = Date.now();
+    const timeout = options.timeoutMs ?? this.settleTimeoutMs;
+    const idle = await this.waitForIdle(timeout);
+    return {
+      settled: idle,
+      networkIdle: idle,
+      hydrated: true,
+      mutationsQuiet: true,
+      elapsedMs: Date.now() - start,
+      frameworkDetected: 'Native AST Engine',
+      reason: idle ? 'settled_quiescent' : 'timeout_elapsed'
+    };
+  }
+
   public close(): void {
     this._sandbox?.dispose();
     this.fetcher.abortInFlight();

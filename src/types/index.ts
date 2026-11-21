@@ -197,3 +197,68 @@ export interface BrowserOptions {
   recycleAfter?: number;
   idleTimeoutSec?: number;
 }
+
+
+export interface SmartWaitOptions {
+  networkIdleMs?: number;
+  mutationQuietMs?: number;
+  checkHydration?: boolean;
+  timeoutMs?: number;
+}
+
+export interface SmartWaitResult {
+  settled: boolean;
+  networkIdle: boolean;
+  hydrated: boolean;
+  mutationsQuiet: boolean;
+  elapsedMs: number;
+  frameworkDetected?: string;
+  reason?: string;
+}
+
+export interface VisualElementBox {
+  id: string;
+  tag: string;
+  role: string;
+  text: string;
+  selector?: string;
+  box: { x: number; y: number; width: number; height: number };
+  center: { x: number; y: number };
+  confidence?: number;
+}
+
+export interface VisionSnapshot {
+  imageBuffer: Buffer;
+  mimeType: 'image/png' | 'image/webp' | 'image/jpeg';
+  width: number;
+  height: number;
+  elements: VisualElementBox[];
+  hasCanvas: boolean;
+  base64DataUri: string;
+}
+
+export interface VisionOptions {
+  format?: 'png' | 'webp' | 'jpeg';
+  quality?: number;
+  withOverlay?: boolean;
+  maxElements?: number;
+  clip?: { x: number; y: number; width: number; height: number };
+}
+
+export interface VaultProfileSummary {
+  name: string;
+  domain: string;
+  url: string;
+  createdAt: string;
+  expiresAt?: number;
+  isExpired: boolean;
+}
+
+export interface VaultProfile {
+  name: string;
+  domain: string;
+  url: string;
+  createdAt: string;
+  expiresAt?: number;
+  session: SessionData;
+}

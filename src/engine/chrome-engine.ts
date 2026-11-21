@@ -7,7 +7,10 @@ import { extractStructuredData, StructuredPageData } from '../distiller/structur
 import { extractWithSchema, DynamicExtractionSchema, UniversalExtractedData } from '../distiller/schema-extractor.js';
 import { computePageDiff } from '../distiller/diff.js';
 import { saveSessionToFile, loadSessionFromFile, validateSessionData } from './session.js';
-import { SemanticPageSnapshot, NetworkOptions, SnapshotOptions, PageDiff, FormFillOptions, FormFillResult, SessionData } from '../types/index.js';
+import { smartWaitForPage } from './smart-wait.js';
+import { captureVisionSnapshot } from '../vision/annotator.js';
+import { SessionVault, SessionVaultConfig } from '../vault/index.js';
+import { SmartWaitOptions, SmartWaitResult, VisionOptions, VisionSnapshot, VaultProfileSummary, SemanticPageSnapshot, NetworkOptions, SnapshotOptions, PageDiff, FormFillOptions, FormFillResult, SessionData } from '../types/index.js';
 import { RobotsStore } from '../network/robots.js';
 import { toPlaywrightProxy } from '../network/proxy.js';
 import { detectChallenge, ChallengeSignal } from '../challenge/detector.js';
@@ -43,6 +46,8 @@ export class ChromeEngine {
   private page: Page | null = null;
   private logs: Array<{ type: string; text: string; timestamp: number }> = [];
   private actionSelectorMap: Map<string, string> = new Map();
+  private visionTargetMap: Map<string, { center: { x: number; y: number } }> = new Map();
+  private vault: SessionVault | null = null;
   private lastSnapshot: SemanticPageSnapshot | null = null;
   private chromePath: string;
   private network: NetworkOptions;
@@ -567,6 +572,25 @@ export class ChromeEngine {
 
   public async act(target: string, type: 'click' | 'type', text?: string): Promise<{ success: boolean; url: string; title: string }> {
     const page = await this.ensurePage();
+
+    if (target.startsWith('@v')) {
+      const visualTarget = this.visionTargetMap.get(target);
+      if (visualTarget) {
+        if (type === 'type') {
+          await page.mouse.click(visualTarget.center.x, visualTarget.center.y);
+          if (text) await page.keyboard.type(text);
+        } else {
+          await page.mouse.click(visualTarget.center.x, visualTarget.center.y);
+        }
+        await page.waitForTimeout(600);
+        return {
+          success: true,
+          url: page.url(),
+          title: await page.title()
+        };
+      }
+    }
+
     let selector = target;
 
     if (target.startsWith('@')) {
@@ -815,6 +839,49 @@ export class ChromeEngine {
         await this.ensurePage();
       }
     }
+  }
+
+  public async smartWait(options: SmartWaitOptions = {}): Promise<SmartWaitResult> {
+    const page = await this.ensurePage();
+    return await smartWaitForPage(page, options);
+  }
+
+  public async screenshot(options: { format?: 'png' | 'jpeg'; quality?: number; clip?: any } = {}): Promise<Buffer> {
+    const page = await this.ensurePage();
+    return await page.screenshot({
+      type: options.format === 'jpeg' ? 'jpeg' : 'png',
+      quality: options.format === 'jpeg' ? (options.quality ?? 80) : undefined,
+      clip: options.clip
+    });
+  }
+
+  public async getVisionSnapshot(options: VisionOptions = {}): Promise<VisionSnapshot> {
+    const page = await this.ensurePage();
+    const snapshot = await captureVisionSnapshot(page, options);
+    this.visionTargetMap.clear();
+    for (const el of snapshot.elements) {
+      this.visionTargetMap.set(el.id, { center: el.center });
+    }
+    return snapshot;
+  }
+
+  public getVault(vaultConfig?: SessionVaultConfig): SessionVault {
+    if (!this.vault) {
+      this.vault = new SessionVault(vaultConfig);
+    }
+    return this.vault;
+  }
+
+  public async saveProfile(profileName: string, passphrase?: string): Promise<VaultProfileSummary> {
+    const session = await this.dumpSession();
+    return this.getVault().saveProfile(profileName, session, passphrase);
+  }
+
+  public async loadProfile(profileName: string, passphrase?: string): Promise<boolean> {
+    const session = this.getVault().loadProfile(profileName, passphrase);
+    if (!session) return false;
+    await this.restoreSession(session);
+    return true;
   }
 
   public async close(): Promise<void> {
