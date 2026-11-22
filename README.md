@@ -4,8 +4,10 @@
 > *Explore. Understand. Execute.*  
 >
 > **Product Portal:** [orbis.memora.company](https://orbis.memora.company) • **Company:** [memora.company](https://memora.company)  
+> **Comprehensive Guides:** [Complete CLI Commands & Features](docs/COMMANDS_AND_FEATURES.md) • [Local AI Agent Handbook](docs/LOCAL_AGENT_GUIDE.md)
 > **Core Engine:** Memora Browser Engine (MBE) (`memora-browser`) — *Drop-in CDP & W3C WebDriver for AI Agents & LLMs*
 
+[![Version](https://img.shields.io/badge/version-0.5.0-green.svg)]()
 [![License](https://img.shields.io/badge/license-Commercial%20%26%20Community%20Evaluation-blue.svg)](LICENSE.md)
 [![CDP Wire Protocol](https://img.shields.io/badge/CDP-Chrome%20130%20Compatible-blue.svg)]()
 [![W3C WebDriver](https://img.shields.io/badge/W3C%20WebDriver-Selenium%20Ready-orange.svg)]()
@@ -25,6 +27,9 @@
 - [Model Context Protocol (MCP) for Cursor, Claude & Windsurf](#model-context-protocol-mcp-for-cursor--claude)
 - [1-Line Autonomous Agent Loop (`OrbisAgent`)](#1-line-autonomous-agent-loop-orbisagent)
 - [Universal Locators Reference (Action IDs, Labels, XPath, CSS)](#universal-locators-reference)
+- [Local Agent Superpowers (v0.5.0)](#local-agent-superpowers-v050)
+- [Complete CLI Commands & Features Reference (Docs)](docs/COMMANDS_AND_FEATURES.md)
+- [Local AI Agent Handbook (Docs)](docs/LOCAL_AGENT_GUIDE.md)
 - [Playwright & Puppeteer (Zero Code Changes)](#playwright--puppeteer-drop-in-integration)
 - [Selenium & W3C WebDriver Classic](#selenium--w3c-webdriver-classic)
 - [Python SDK (Browser-Use, LangChain, CrewAI)](#python-sdk)
@@ -92,7 +97,7 @@ npx @memoracompany/memora-orbis --port 9222
 
 Output:
 ```text
-  ⬡  ORBIS BY MEMORA  •  v0.2.0  (Agentic Browser Engine)
+  ⬡  ORBIS BY MEMORA  •  v0.5.0  (Agentic Browser Engine)
   An Agentic Browser • Built for Autonomous AI • orbis.memora.company
   ──────────────────────────────────────────────────────────────────
   ▶ Core Engine:        Memora Browser Engine (MBE)
@@ -230,6 +235,71 @@ Orbis provides a modular **Strategy Pattern locator engine** that accepts both A
 | **Dropdown Selection** | `agent.selectOption(target, val)` | `agent.selectOption('#country', 'India')` | Native `<select>` & dynamic ARIA listboxes |
 
 ---
+
+
+---
+
+## Local Agent Superpowers (v0.5.0)
+
+Orbis v0.5.0 introduces seven major capabilities specifically engineered for local-first AI agents:
+
+### 1. Agent Flight Recorder & Offline Replay (`orbis replay`)
+Capture full multi-turn agent sessions and step through them with an interactive HTML scrubber:
+```bash
+# Enable recording on agent launch:
+orbis --record --port 9222
+
+# Launch offline interactive visual trace player:
+orbis replay
+```
+
+### 2. Zero-Login Cookie Importer (`orbis import-cookies`)
+Import authenticated cookies from your desktop Chrome/Firefox into Orbis in seconds:
+```bash
+# Import Netscape cookies.txt or JSON and save to encrypted vault profile:
+orbis import-cookies ~/Downloads/cookies.txt --url https://github.com --profile work-github
+```
+
+### 3. 4-Tier Autonomous Self-Healing Locators
+When a CSS selector or ID breaks due to website UI redesigns, Orbis automatically recovers the element using:
+1. **Text & Content matching** (`text=Submit`)
+2. **ARIA attributes** (`aria-label="Submit Order"`)
+3. **Form Placeholders & Names** (`placeholder="Search..."`)
+4. **Semantic Element Hierarchy** (`role="button"`)
+
+Broken selectors fail fast within 2.5s and recover immediately without throwing errors.
+
+### 4. Client-Side Two-Way PII Masking Firewall
+Ensure zero sensitive user data leaks to cloud LLM providers.
+- **Inbound:** Masks credit cards (Luhn-validated), API keys, passwords, emails, and SSNs as `{{CARD_1}}`, `{{API_KEY_1}}`, etc.
+- **Outbound:** When the agent outputs an action with `{{CARD_1}}`, Orbis transparently replaces it with the real secret directly inside the DOM input field!
+
+```typescript
+const agent = await OrbisAgent.launch({ maskPII: true });
+await agent.act('@card_input', '{{CARD_1}}'); // Safely types real card number locally
+```
+
+### 5. Multi-Tab Shared Blackboard
+Share facts and variables across tabs and inject a compact ~100-token Markdown digest into your agent's system prompt:
+```typescript
+agent.blackboard.recordFact('User selected enterprise plan ($99/mo)', 'checkout');
+agent.blackboard.setVar('plan_id', 'tier_3');
+console.log(agent.blackboard.generateSummary());
+```
+
+### 6. Smart-Wait SPA Hydration & Network Settle
+Eliminate "dead clicks" by waiting for React, Next.js, Vue, and Nuxt hydration and in-flight fetch/XHR requests to settle before clicking:
+```typescript
+await agent.goto('https://app.example.com');
+await agent.smartWait({ checkHydration: true, networkIdleMs: 300 });
+```
+
+### 7. Numbered Visual Overlay Badges (`@v1`, `@v2`)
+Capture viewport screenshots with high-contrast badge markers for multimodal vision models:
+```typescript
+const { imageBase64, actionMap } = await agent.screenshot({ withBoundingBoxes: true });
+await agent.act('@v1'); // Click by visual badge coordinate
+```
 
 ## Playwright & Puppeteer Drop-In Integration
 
