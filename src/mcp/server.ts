@@ -562,6 +562,21 @@ export class MCPServer {
                   },
                   required: ['action']
                 }
+              },
+              {
+                name: 'memora_blackboard',
+                annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+                description: 'Cross-tab shared working memory and context blackboard. Record facts, store key-value variables across multiple tabs, or get a compact Markdown summary of all open tabs and discovered facts for LLM reasoning.',
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    action: { type: 'string', enum: ['summary', 'record_fact', 'set_var', 'get_var', 'list_facts', 'clear'], description: 'Blackboard action' },
+                    key: { type: 'string', description: 'Variable key (for set_var / get_var)' },
+                    value: { type: 'string', description: 'Variable value or fact text' },
+                    category: { type: 'string', description: 'Optional category for facts (e.g. "pricing", "auth", "docs")' }
+                  },
+                  required: ['action']
+                }
               }
             ]
           }
@@ -725,6 +740,8 @@ export class MCPServer {
         return req('read');
       case 'memora_vault':
         return req('session');
+      case 'memora_blackboard':
+        return req('read');
       default:
         return req('read');
     }
@@ -1105,6 +1122,41 @@ ${snapshot.actionMapText}`;
         }
 
         throw new Error(`Unknown vault action: "${action}"`);
+      }
+
+      case 'memora_blackboard': {
+        const action = args.action || 'summary';
+        const bb = typeof (this.engine as any).getBlackboard === 'function' ? (this.engine as any).getBlackboard() : null;
+        if (!bb) return 'Blackboard not supported on this engine.';
+
+        if (action === 'summary') {
+          return bb.getSharedContextMarkdown();
+        }
+        if (action === 'record_fact') {
+          if (!args.value) throw new Error('Please provide "value" (fact string to record)');
+          const f = bb.recordFact(args.value, args.category);
+          return `✓ Fact recorded [${f.id}]: "${f.fact}"`;
+        }
+        if (action === 'set_var') {
+          if (!args.key) throw new Error('Please provide "key"');
+          bb.set(args.key, args.value);
+          return `✓ Variable "${args.key}" set to "${args.value}"`;
+        }
+        if (action === 'get_var') {
+          if (!args.key) throw new Error('Please provide "key"');
+          const v = bb.get(args.key);
+          return v !== undefined ? String(v) : '(null)';
+        }
+        if (action === 'list_facts') {
+          const facts = bb.listFacts(args.category);
+          if (!facts.length) return 'No facts recorded.';
+          return facts.map((f: any) => `• [${f.id}] [${f.category}] ${f.fact}`).join('\n');
+        }
+        if (action === 'clear') {
+          bb.clear();
+          return 'Blackboard cleared.';
+        }
+        throw new Error(`Unknown blackboard action: "${action}"`);
       }
 
       default:

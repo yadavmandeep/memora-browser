@@ -1,3 +1,4 @@
+import { AgentBlackboard } from '../memory/index.js';
 import { SessionVault, SessionVaultConfig } from '../vault/index.js';
 import { MemoraPage, OrbisPage } from './page.js';
 import { BrowserOptions } from '../types/index.js';
@@ -27,6 +28,7 @@ export class OrbisBrowser {
   private operationCount: number = 0;
   private lastActiveTimes: Map<string, number> = new Map();
   private vault: SessionVault | null = null;
+  private blackboard: AgentBlackboard = new AgentBlackboard();
 
   constructor(options: BrowserOptions = {}) {
     this.options = {
@@ -233,6 +235,10 @@ export class OrbisBrowser {
       this.vault = new SessionVault(config);
     }
     return this.vault;
+  }
+
+  public getBlackboard(): AgentBlackboard {
+    return this.blackboard;
   }
 
   public close(): void {

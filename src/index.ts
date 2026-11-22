@@ -32,3 +32,5 @@ export * from './vault/index.js';
 export * from './vision/annotator.js';
 export * from './recorder/index.js';
 export * from './firewall/pii/index.js';
+export * from './memory/index.js';
+export * from './dom/healing.js';

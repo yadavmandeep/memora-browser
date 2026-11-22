@@ -990,4 +990,27 @@ program
     } catch {}
   });
 
+// 8. Import cookies command: `orbis import-cookies <filePath>`
+program
+  .command('import-cookies <filePath>')
+  .option('--url <targetUrl>', 'Target URL for domain cookies', 'https://example.com')
+  .option('--profile <name>', 'Save directly to encrypted vault profile name')
+  .description('Import Netscape or JSON cookies from host browser into Orbis')
+  .action((filePath: string, opts: any) => {
+    const { SessionImporter } = require('../vault/importer.js');
+    const { SessionVault } = require('../vault/index.js');
+    try {
+      const session = SessionImporter.importFromFile(filePath, opts.url);
+      console.log(`✓ Successfully imported ${session.cookieList?.length || Object.keys(session.cookies).length} cookies for ${session.url}`);
+      if (opts.profile) {
+        const vault = new SessionVault();
+        vault.saveProfile(opts.profile, session);
+        console.log(`✓ Saved authenticated session to vault profile "${opts.profile}"`);
+      }
+    } catch (err: any) {
+      console.error(`Failed to import cookies: ${err.message}`);
+      process.exit(1);
+    }
+  });
+
 program.parse(process.argv);

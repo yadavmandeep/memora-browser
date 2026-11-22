@@ -1,3 +1,6 @@
+import { SelfHealingLocator } from '../dom/healing.js';
+import { AgentBlackboard } from '../memory/index.js';
+import { SessionImporter } from '../vault/importer.js';
 import { FlightRecorder, FlightSession } from '../recorder/index.js';
 import { PIIMasker } from '../firewall/pii/index.js';
 import fs from 'node:fs';
@@ -54,6 +57,8 @@ export class ChromeEngine {
   private recorder: FlightRecorder | null = null;
   private piiMasker: PIIMasker = new PIIMasker();
   private maskPII: boolean = false;
+  private healingLocator: SelfHealingLocator = new SelfHealingLocator();
+  private blackboard: AgentBlackboard = new AgentBlackboard();
   private chromePath: string;
   private network: NetworkOptions;
   private cooldown: ChallengeCooldown;
@@ -610,13 +615,30 @@ export class ChromeEngine {
       selector = mapped;
     }
 
-    if (type === 'type') {
-      await page.fill(selector, text || '');
-      // Fire change and input events
-      await page.dispatchEvent(selector, 'input');
-      await page.dispatchEvent(selector, 'change');
-    } else {
-      await page.click(selector);
+    try {
+      if (type === 'type') {
+        await page.fill(selector, text || '', { timeout: 2500 });
+        await page.dispatchEvent(selector, 'input');
+        await page.dispatchEvent(selector, 'change');
+      } else {
+        await page.click(selector, { timeout: 2500 });
+      }
+    } catch (err: any) {
+      const html = await page.content();
+      const doc = parseHTML(html);
+      const healed = this.healingLocator.heal(target, doc, this.lastSnapshot);
+      if (healed) {
+        process.stderr.write(`[Self-Healing] Target "${target}" failed -> Healed with "${healed.healedSelector}" (Strategy: ${healed.strategy}, Confidence: ${healed.confidence})\n`);
+        if (type === 'type') {
+          await page.fill(healed.healedSelector, text || '');
+          await page.dispatchEvent(healed.healedSelector, 'input');
+          await page.dispatchEvent(healed.healedSelector, 'change');
+        } else {
+          await page.click(healed.healedSelector);
+        }
+      } else {
+        throw err;
+      }
     }
 
     // Give time for any navigation or state transition
@@ -928,6 +950,18 @@ export class ChromeEngine {
 
   public getPIIMasker(): PIIMasker {
     return this.piiMasker;
+  }
+
+  public getBlackboard(): AgentBlackboard {
+    return this.blackboard;
+  }
+
+  public async importCookies(filePath: string, targetUrl?: string): Promise<SessionData> {
+    const page = await this.ensurePage();
+    const url = targetUrl || page.url() || 'https://example.com';
+    const session = SessionImporter.importFromFile(filePath, url);
+    await this.restoreSession(session);
+    return session;
   }
 
   public async close(): Promise<void> {
