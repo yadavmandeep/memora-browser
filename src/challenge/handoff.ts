@@ -90,6 +90,9 @@ export class HumanHandoff<E extends HandoffEngine = ChromeEngine> {
     this.initialBlocking = initial?.blocking ?? true;
     this.lastSignal = initial;
     this.state = 'waiting';
+    process.stdout.write('\x07'); // System terminal bell
+    process.stderr.write(`\n🔔 [Orbis Handoff] Human Action Required: CAPTCHA / 2FA detected on "${url}". Please solve it in the opened browser window...\n`);
+
 
     try {
       await this.engine.openForHuman(url);

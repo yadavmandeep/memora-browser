@@ -1,3 +1,5 @@
+import { FlightRecorder, FlightSession } from '../recorder/index.js';
+import { PIIMasker } from '../firewall/pii/index.js';
 import fs from 'node:fs';
 import { chromium, type Browser, type BrowserContext, type Page, type Response } from 'playwright-core';
 import { parseHTML } from '../dom/parser.js';
@@ -49,6 +51,9 @@ export class ChromeEngine {
   private visionTargetMap: Map<string, { center: { x: number; y: number } }> = new Map();
   private vault: SessionVault | null = null;
   private lastSnapshot: SemanticPageSnapshot | null = null;
+  private recorder: FlightRecorder | null = null;
+  private piiMasker: PIIMasker = new PIIMasker();
+  private maskPII: boolean = false;
   private chromePath: string;
   private network: NetworkOptions;
   private cooldown: ChallengeCooldown;
@@ -573,6 +578,10 @@ export class ChromeEngine {
   public async act(target: string, type: 'click' | 'type', text?: string): Promise<{ success: boolean; url: string; title: string }> {
     const page = await this.ensurePage();
 
+    if (this.maskPII && text) {
+      text = this.piiMasker.unmask(text);
+    }
+
     if (target.startsWith('@v')) {
       const visualTarget = this.visionTargetMap.get(target);
       if (visualTarget) {
@@ -612,6 +621,14 @@ export class ChromeEngine {
 
     // Give time for any navigation or state transition
     await page.waitForTimeout(600);
+
+    if (this.recorder && this.recorder.active) {
+      this.recorder.recordStep({
+        url: page.url(),
+        title: await page.title().catch(() => ''),
+        action: { type, target, value: text, success: true }
+      });
+    }
 
     return {
       success: true,
@@ -882,6 +899,35 @@ export class ChromeEngine {
     if (!session) return false;
     await this.restoreSession(session);
     return true;
+  }
+
+  public enableRecording(name?: string): FlightSession {
+    if (!this.recorder) {
+      this.recorder = new FlightRecorder();
+    }
+    return this.recorder.startSession(this.page?.url() || 'about:blank', name);
+  }
+
+  public stopRecording(): FlightSession | null {
+    if (this.recorder && this.recorder.active) {
+      return this.recorder.endSession();
+    }
+    return null;
+  }
+
+  public getFlightRecorder(): FlightRecorder {
+    if (!this.recorder) {
+      this.recorder = new FlightRecorder();
+    }
+    return this.recorder;
+  }
+
+  public setPIIMasking(enabled: boolean): void {
+    this.maskPII = enabled;
+  }
+
+  public getPIIMasker(): PIIMasker {
+    return this.piiMasker;
   }
 
   public async close(): Promise<void> {

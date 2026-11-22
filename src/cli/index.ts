@@ -953,4 +953,41 @@ program
     }
   });
 
+// 7. Replay command: `orbis replay [traceFile]`
+program
+  .command('replay [traceFile]')
+  .description('Open and replay an agent flight recording (.html) in your local browser')
+  .action((traceFile?: string) => {
+    let targetHtml = traceFile;
+    if (!targetHtml) {
+      const traceDir = path.join(process.cwd(), '.orbis', 'traces');
+      if (fs.existsSync(traceDir)) {
+        const files = fs.readdirSync(traceDir).filter(f => f.endsWith('.html'));
+        if (files.length > 0) {
+          files.sort((a, b) => {
+            return fs.statSync(path.join(traceDir, b)).mtimeMs - fs.statSync(path.join(traceDir, a)).mtimeMs;
+          });
+          targetHtml = path.join(traceDir, files[0]);
+        }
+      }
+    }
+
+    if (!targetHtml || !fs.existsSync(targetHtml)) {
+      console.error('No flight replay (.html) found. Run an agent with --record first or specify a file path.');
+      process.exit(1);
+    }
+
+    const absPath = path.resolve(targetHtml);
+    console.log(`🎬 Opening Orbis Flight Replay in local browser:\n  file://${absPath.replace(/\\/g, '/')}\n`);
+    const cmd = process.platform === 'win32'
+      ? `start "" "${absPath}"`
+      : process.platform === 'darwin'
+      ? `open "${absPath}"`
+      : `xdg-open "${absPath}"`;
+    try {
+      const { exec } = require('node:child_process');
+      exec(cmd);
+    } catch {}
+  });
+
 program.parse(process.argv);

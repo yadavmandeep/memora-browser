@@ -28,3 +28,7 @@ export { HumanHandoff, hasDisplay, DEFAULT_HANDOFF_TIMEOUT_SEC } from './challen
 export type { HandoffState, HandoffStatus, HandoffEngine, HumanHandoffOptions } from './challenge/handoff.js';
 export * from './firewall/index.js';
 export * from './adapters/index.js';
+export * from './vault/index.js';
+export * from './vision/annotator.js';
+export * from './recorder/index.js';
+export * from './firewall/pii/index.js';

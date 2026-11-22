@@ -1,4 +1,4 @@
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 from memora.agent import OrbisAgent, OrbisSnapshot, MemoraAgent, MemoraSnapshot, ChallengeDetectedError, ChallengeCooldownError, FirewallBlockedError
 

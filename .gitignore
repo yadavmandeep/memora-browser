@@ -37,3 +37,6 @@ coverage/
 .DS_Store
 Thumbs.db
 
+
+# Local runtime traces and session vault
+.orbis/
