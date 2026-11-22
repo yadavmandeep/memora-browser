@@ -7,7 +7,7 @@
 > **Comprehensive Guides:** [Complete CLI Commands & Features](docs/COMMANDS_AND_FEATURES.md) • [Local AI Agent Handbook](docs/LOCAL_AGENT_GUIDE.md)
 > **Core Engine:** Memora Browser Engine (MBE) (`memora-browser`) — *Drop-in CDP & W3C WebDriver for AI Agents & LLMs*
 
-[![Version](https://img.shields.io/badge/version-0.5.0-green.svg)]()
+[![Version](https://img.shields.io/badge/version-0.3.0-green.svg)]()
 [![License](https://img.shields.io/badge/license-Commercial%20%26%20Community%20Evaluation-blue.svg)](LICENSE.md)
 [![CDP Wire Protocol](https://img.shields.io/badge/CDP-Chrome%20130%20Compatible-blue.svg)]()
 [![W3C WebDriver](https://img.shields.io/badge/W3C%20WebDriver-Selenium%20Ready-orange.svg)]()
@@ -27,7 +27,7 @@
 - [Model Context Protocol (MCP) for Cursor, Claude & Windsurf](#model-context-protocol-mcp-for-cursor--claude)
 - [1-Line Autonomous Agent Loop (`OrbisAgent`)](#1-line-autonomous-agent-loop-orbisagent)
 - [Universal Locators Reference (Action IDs, Labels, XPath, CSS)](#universal-locators-reference)
-- [Local Agent Superpowers (v0.5.0)](#local-agent-superpowers-v050)
+- [Local Agent Superpowers (v0.3.0)](#local-agent-superpowers-v050)
 - [Complete CLI Commands & Features Reference (Docs)](docs/COMMANDS_AND_FEATURES.md)
 - [Local AI Agent Handbook (Docs)](docs/LOCAL_AGENT_GUIDE.md)
 - [Playwright & Puppeteer (Zero Code Changes)](#playwright--puppeteer-drop-in-integration)
@@ -97,7 +97,7 @@ npx @memoracompany/memora-orbis --port 9222
 
 Output:
 ```text
-  ⬡  ORBIS BY MEMORA  •  v0.5.0  (Agentic Browser Engine)
+  ⬡  ORBIS BY MEMORA  •  v0.3.0  (Agentic Browser Engine)
   An Agentic Browser • Built for Autonomous AI • orbis.memora.company
   ──────────────────────────────────────────────────────────────────
   ▶ Core Engine:        Memora Browser Engine (MBE)
@@ -239,9 +239,9 @@ Orbis provides a modular **Strategy Pattern locator engine** that accepts both A
 
 ---
 
-## Local Agent Superpowers (v0.5.0)
+## Local Agent Superpowers (v0.3.0)
 
-Orbis v0.5.0 introduces seven major capabilities specifically engineered for local-first AI agents:
+Orbis v0.3.0 introduces seven major capabilities specifically engineered for local-first AI agents:
 
 ### 1. Agent Flight Recorder & Offline Replay (`orbis replay`)
 Capture full multi-turn agent sessions and step through them with an interactive HTML scrubber:

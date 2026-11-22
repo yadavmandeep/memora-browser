@@ -1,6 +1,6 @@
 # Orbis by Memora — Complete CLI Commands & Features Reference
 
-> **Applies to:** Orbis Engine v0.5.0 (`@memoracompany/memora-orbis` on npm, `memora-orbis` on PyPI)  
+> **Applies to:** Orbis Engine v0.3.0 (`@memoracompany/memora-orbis` on npm, `memora-orbis` on PyPI)  
 > **Target Audience:** AI Agent Developers, LLM Engineers, QA Automation Teams, and Scraping Architects.  
 > **Architecture Focus:** 100% Local-First Developer Experience (Zero cloud BaaS dependency required).
 
@@ -59,7 +59,7 @@ The `@memoracompany/memora-orbis` package exposes three executable aliases:
 ```bash
 # Verify installation
 npx orbis --version
-# Output: 0.5.0
+# Output: 0.3.0
 ```
 
 ---

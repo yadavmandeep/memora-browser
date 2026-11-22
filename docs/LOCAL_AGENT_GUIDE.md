@@ -1,6 +1,6 @@
 # Orbis Developer Handbook: Local AI Agent Workflows
 
-> **Version:** v0.5.0  
+> **Version:** v0.3.0  
 > **Target Audience:** Developers running AI agents on their local machines (macOS, Windows, Linux) without requiring external cloud browser infrastructure.
 
 ---
@@ -13,7 +13,7 @@ When building autonomous agents or web automation pipelines, cloud browser SaaS 
 - Security risks from transmitting user credentials or session tokens over public clouds
 - Complex configuration and proxy setups
 
-**Orbis v0.5.0 is designed from the core for local desktop execution**:
+**Orbis v0.3.0 is designed from the core for local desktop execution**:
 - It runs directly on your development machine or local container.
 - It shares host cookies effortlessly to bypass logins and 2FA.
 - It safeguards your private data using client-side PII masking.

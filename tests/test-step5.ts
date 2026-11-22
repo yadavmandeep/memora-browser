@@ -7,7 +7,7 @@ import { SessionImporter } from '../src/vault/importer.js';
 import { parseHTML } from '../src/dom/parser.js';
 import { ChromeEngine } from '../src/engine/chrome-engine.js';
 
-console.log('=== Running Step 5 (v0.5.0 Local Agent Power) Test Suite ===\n');
+console.log('=== Running Step 5 (v0.3.0 Local Agent Power) Test Suite ===\n');
 
 async function testAgentBlackboard() {
   console.log('Testing Component 5.1: Cross-Tab Agent Blackboard & Context Graph...');
@@ -182,7 +182,7 @@ async function runAll() {
   await testSelfHealingLocator();
   await testSessionImporter();
   await testChromeEngineSelfHealing();
-  console.log('🎉 ALL STEP 5 (v0.5.0) FEATURES PASSED 100%!');
+  console.log('🎉 ALL STEP 5 (v0.3.0) FEATURES PASSED 100%!');
 }
 
 runAll().catch((err) => {
